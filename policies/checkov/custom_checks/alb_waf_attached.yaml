@@ -1,0 +1,26 @@
+# Internet-facing ALBs must be protected by a WAFv2 web ACL association; internal ALBs are exempt.
+metadata:
+  id: "CKV2_ORG_8"
+  name: "Ensure internet-facing ALBs are associated with a WAFv2 web ACL"
+  category: "NETWORKING"
+definition:
+  and:
+    - cond_type: filter
+      attribute: resource_type
+      value: ["aws_lb"]
+      operator: within
+    - or:
+        - cond_type: attribute
+          resource_types: ["aws_lb"]
+          attribute: internal
+          operator: equals
+          value: true
+        - cond_type: attribute
+          resource_types: ["aws_lb"]
+          attribute: load_balancer_type
+          operator: within
+          value: ["network", "gateway"]
+        - cond_type: connection
+          resource_types: ["aws_lb"]
+          connected_resource_types: ["aws_wafv2_web_acl_association"]
+          operator: exists

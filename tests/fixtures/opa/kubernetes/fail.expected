@@ -1,0 +1,12 @@
+Deployment/legacy: container 'app' must not run privileged
+Deployment/legacy: container 'app' image 'nginx:latest' must use a pinned tag
+Deployment/legacy: must not set hostNetwork = true
+Deployment/legacy: container 'app' must drop ALL capabilities
+Deployment/legacy: container 'app' adds capability SYS_ADMIN
+Deployment/legacy: hostPath volume 'docker-sock' is not allowed
+Deployment/legacy must not be deployed to the 'default' namespace
+Deployment/legacy is missing required labels
+is not from an approved registry
+Service/legacy: LoadBalancer must be internal
+ClusterRoleBinding/ci-admin binds cluster-admin
+PodDisruptionBudget/legacy: maxUnavailable 0 blocks node drains

@@ -1,0 +1,24 @@
+# Gate changes to workflows themselves with OPA policies (script injection, pwn requests,
+# write-all tokens, unpinned actions, self-hosted runners on PRs, static AWS keys).
+name: workflow-policy
+
+on:
+  pull_request:
+    paths: [".github/workflows/**", ".github/actions/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  conftest:
+    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    with:
+      policy-path: policies/opa/github-actions
+      files: .github/workflows/
+      namespace: github_actions
+
+  checkov-gha:
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    with:
+      directory: .github/workflows
+      framework: github_actions

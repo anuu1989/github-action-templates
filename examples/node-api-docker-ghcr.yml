@@ -1,0 +1,37 @@
+# Node API -> multi-arch image on GHCR, signed with cosign, SARIF to code scanning
+name: node-api
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: your-org/github-actions-templates/.github/workflows/node-build.yml@v1
+    with:
+      node-versions: '["22"]'
+      package-manager: npm
+      build-script: build
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  image:
+    needs: build
+    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write          # cosign keyless
+      security-events: write   # trivy SARIF
+    with:
+      registry: ghcr
+      image-name: node-api
+      platforms: linux/amd64,linux/arm64
+      push: ${{ github.event_name != 'pull_request' }}
+      sign-image: true
+      upload-sarif: true

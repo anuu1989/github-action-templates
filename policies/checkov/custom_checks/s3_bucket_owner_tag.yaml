@@ -1,0 +1,16 @@
+# YAML (graph) custom policy: every S3 bucket must have Owner and DataClassification tags.
+metadata:
+  id: "CKV2_ORG_1"
+  name: "Ensure S3 buckets are tagged with Owner and DataClassification"
+  category: "GENERAL_SECURITY"
+definition:
+  and:
+    - cond_type: attribute
+      resource_types: ["aws_s3_bucket"]
+      attribute: tags.Owner
+      operator: exists
+    - cond_type: attribute
+      resource_types: ["aws_s3_bucket"]
+      attribute: tags.DataClassification
+      operator: within
+      value: ["public", "internal", "confidential", "restricted"]

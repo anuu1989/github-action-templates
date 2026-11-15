@@ -1,0 +1,60 @@
+# Python Lambda: test, package zip, deploy to dev and prod (alias "live" moves to the new version)
+name: python-lambda
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: your-org/github-actions-templates/.github/workflows/python-build.yml@v1
+    with:
+      python-versions: '["3.12"]'
+      run-mypy: true
+
+  package:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build deployment zip
+        run: |
+          pip install -r requirements.txt --target build --platform manylinux2014_x86_64 --only-binary=:all:
+          cp -r src/* build/
+          (cd build && zip -qr ../function.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zip
+          path: function.zip
+
+  deploy-dev:
+    needs: package
+    uses: your-org/github-actions-templates/.github/workflows/aws-lambda-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: dev
+      function-name: orders-processor-dev
+      artifact-name: lambda-zip
+      aws-role-arn: arn:aws:iam::222222222222:role/gha-lambda-deploy
+
+  deploy-prod:
+    needs: deploy-dev
+    uses: your-org/github-actions-templates/.github/workflows/aws-lambda-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: production
+      function-name: orders-processor
+      artifact-name: lambda-zip
+      aws-role-arn: arn:aws:iam::333333333333:role/gha-lambda-deploy

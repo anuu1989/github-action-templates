@@ -1,0 +1,82 @@
+# Reusable: deploy a static site (SPA / docs) to S3 with sensible cache headers + CloudFront invalidation.
+# Caller permissions needed: contents: read, id-token: write
+name: AWS S3 Static Site Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      environment-url:
+        type: string
+        default: ""
+      artifact-name:
+        description: "Artifact containing the built site"
+        type: string
+        required: true
+      bucket:
+        type: string
+        required: true
+      prefix:
+        type: string
+        default: ""
+      cloudfront-distribution-id:
+        type: string
+        default: ""
+      delete-removed:
+        type: boolean
+        default: true
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        required: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runs-on }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.environment-url }}
+    concurrency:
+      group: s3-${{ inputs.bucket }}-${{ inputs.prefix }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: site
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Sync to S3
+        env:
+          BUCKET: ${{ inputs.bucket }}
+          PREFIX: ${{ inputs.prefix }}
+          DELETE: ${{ inputs.delete-removed }}
+        run: |
+          DEST="s3://${BUCKET}/${PREFIX}"
+          DEL=(); [ "$DELETE" = "true" ] && DEL=(--delete)
+          # Fingerprinted assets: cache forever
+          aws s3 sync site "$DEST" "${DEL[@]}" --exclude "*.html" \
+            --cache-control "public,max-age=31536000,immutable"
+          # HTML: always revalidate
+          aws s3 sync site "$DEST" "${DEL[@]}" --exclude "*" --include "*.html" \
+            --cache-control "no-cache"
+
+      - name: Invalidate CloudFront
+        if: inputs.cloudfront-distribution-id != ''
+        env:
+          DIST: ${{ inputs.cloudfront-distribution-id }}
+          PREFIX: ${{ inputs.prefix }}
+        run: |
+          ID=$(aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/${PREFIX}*" --query Invalidation.Id --output text)
+          aws cloudfront wait invalidation-completed --distribution-id "$DIST" --id "$ID"

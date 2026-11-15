@@ -1,0 +1,13 @@
+# Copy to repo root as .gitleaks.toml
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''(^|/)test/fixtures/''',
+  '''(^|/)package-lock\.json$''',
+]
+regexes = [
+  '''AKIAIOSFODNN7EXAMPLE''',   # AWS documentation example key
+]

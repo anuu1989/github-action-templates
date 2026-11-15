@@ -1,0 +1,138 @@
+# Everyday AWS automation patterns in GitHub Actions: OIDC auth, role chaining, Secrets Manager,
+# SSM Parameter Store, boto3 (Python SDK) and AWS SDK for JavaScript v3 scripts, multi-account matrix.
+name: aws-automation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  id-token: write   # required for OIDC on every job below
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  # --- 1. Secrets Manager + SSM Parameter Store -> masked env vars -----------------------------
+  secrets-and-params:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::222222222222:role/gha-read-config
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Load secrets from Secrets Manager
+        uses: aws-actions/aws-secretsmanager-get-secrets@v2
+        # JSON secret prod/orders/db -> DB_USERNAME, DB_PASSWORD, ...; plain secret -> API_KEY
+        with:
+          secret-ids: |
+            DB, prod/orders/db
+            API_KEY, prod/orders/api-key
+          parse-json-secrets: true
+
+      - name: Load SSM parameters by path
+        run: |
+          aws ssm get-parameters-by-path --path /orders/prod/ --with-decryption --recursive \
+            --query 'Parameters[].[Name,Value]' --output text |
+          while IFS=$'\t' read -r name value; do
+            key=$(basename "$name" | tr '[:lower:]-' '[:upper:]_')
+            echo "::add-mask::$value"
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done
+
+      - name: Use them
+        run: |
+          test -n "$DB_USERNAME" && echo "DB user loaded (masked)"
+          env | grep -c -E '^(DB_|API_KEY)' || true
+
+  # --- 2. boto3 script: tag compliance across many accounts (matrix) ---------------------------
+  tag-compliance:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        account:
+          - { name: dev,  role: "arn:aws:iam::222222222222:role/gha-readonly" }
+          - { name: prod, role: "arn:aws:iam::333333333333:role/gha-readonly" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: your-org/github-actions-templates
+          ref: v1
+          path: templates
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r templates/scripts/aws/requirements.txt
+      - uses: your-org/github-actions-templates/actions/setup-aws@v1
+        with:
+          role-arn: ${{ matrix.account.role }}
+      - name: Tag compliance (${{ matrix.account.name }})
+        run: |
+          python templates/scripts/aws/tag_compliance.py \
+            --required-tags Owner,Environment,CostCenter \
+            --regions us-east-1,eu-west-1 \
+            --resource-types ec2:instance,s3:bucket,rds:db,lambda:function
+
+  # --- 3. Role chaining: hub role -> spoke account role ----------------------------------------
+  cross-account:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: your-org/github-actions-templates/actions/setup-aws@v1
+        with:
+          role-arn: arn:aws:iam::111111111111:role/gha-hub
+          chain-role-arn: arn:aws:iam::333333333333:role/hub-to-prod-readonly
+      - run: aws s3 ls
+
+  # --- 4. AWS SDK for JavaScript v3: skip build if the image already exists in ECR --------------
+  build-if-needed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: your-org/github-actions-templates
+          ref: v1
+          path: templates
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111111111111:role/gha-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+      - run: npm install --no-save @aws-sdk/client-ecr
+        working-directory: templates/scripts/aws
+      - id: check
+        run: node templates/scripts/aws/ecr_image_exists.mjs orders-service "sha-${GITHUB_SHA::7}"
+      - name: Build & push
+        if: steps.check.outputs.exists == 'false'
+        run: echo "Image not found, building..."   # docker build/push here
+
+  # --- 5. Inline boto3 with `shell: python` ------------------------------
+  boto3-inline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install boto3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::222222222222:role/gha-readonly
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Find unattached EBS volumes
+        shell: python
+        run: |
+          import os, boto3
+          ec2 = boto3.client("ec2")
+          vols = [v for p in ec2.get_paginator("describe_volumes").paginate(
+                      Filters=[{"Name": "status", "Values": ["available"]}]) for v in p["Volumes"]]
+          gib = sum(v["Size"] for v in vols)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"### Unattached EBS volumes: {len(vols)} ({gib} GiB)\n")
+              for v in vols:
+                  f.write(f"- `{v['VolumeId']}` {v['Size']} GiB {v['VolumeType']} created {v['CreateTime']:%Y-%m-%d}\n")

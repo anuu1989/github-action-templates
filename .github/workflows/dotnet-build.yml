@@ -1,0 +1,78 @@
+# Reusable: restore, build, test and (optionally) publish a .NET solution/project.
+name: .NET Build
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        type: string
+        default: "8.0.x"
+      working-directory:
+        type: string
+        default: "."
+      project:
+        description: "Solution or project file (empty = auto-detect in working-directory)"
+        type: string
+        default: ""
+      configuration:
+        type: string
+        default: Release
+      publish-project:
+        description: "Project to 'dotnet publish' into ./publish (empty = skip)"
+        type: string
+        default: ""
+      artifact-name:
+        type: string
+        default: ""
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      PROJECT: ${{ inputs.project }}
+      CONFIGURATION: ${{ inputs.configuration }}
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore, build & test
+        run: |
+          P=(); [ -n "$PROJECT" ] && P=("$PROJECT")
+          dotnet restore "${P[@]}"
+          dotnet build "${P[@]}" --no-restore -c "$CONFIGURATION"
+          dotnet test "${P[@]}" --no-build -c "$CONFIGURATION" --logger trx --results-directory TestResults --collect:"XPlat Code Coverage"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results
+          path: ${{ inputs.working-directory }}/TestResults
+          if-no-files-found: ignore
+      - name: Publish
+        if: inputs.publish-project != ''
+        env:
+          PUBLISH_PROJECT: ${{ inputs.publish-project }}
+        run: dotnet publish "$PUBLISH_PROJECT" -c "$CONFIGURATION" -o publish --no-restore
+      - name: Upload artifact
+        if: inputs.publish-project != '' && inputs.artifact-name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/publish

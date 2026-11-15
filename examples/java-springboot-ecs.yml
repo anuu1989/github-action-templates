@@ -1,0 +1,82 @@
+# Java (Spring Boot, Maven) -> Docker image in ECR -> ECS Fargate (dev auto, prod with approval)
+# Copy to .github/workflows/ in your app repo. Replace your-org, account IDs and names.
+name: java-service
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    with:
+      build-tool: maven
+      java-versions: '["21"]'
+      artifact-name: app-jar
+      artifact-path: target/*.jar
+
+  security:
+    uses: your-org/github-actions-templates/.github/workflows/codeql.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      languages: '["java-kotlin"]'
+      build-mode: none
+
+  image:
+    needs: build
+    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      registry: ecr
+      image-name: orders-service
+      download-artifact: app-jar
+      download-path: target
+      push: ${{ github.event_name == 'push' }}
+      aws-role-arn: arn:aws:iam::111111111111:role/gha-ecr-push
+      aws-region: us-east-1
+
+  deploy-dev:
+    if: github.ref == 'refs/heads/main'
+    needs: image
+    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: dev
+      environment-url: https://orders.dev.example.com
+      aws-role-arn: arn:aws:iam::222222222222:role/gha-ecs-deploy
+      cluster: dev-cluster
+      service: orders-service
+      container-name: app
+      task-definition-family: orders-service-dev
+      image: ${{ needs.image.outputs.image-ref }}
+
+  deploy-prod:
+    needs: [image, deploy-dev]
+    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: production        # configure required reviewers on this environment
+      environment-url: https://orders.example.com
+      aws-role-arn: arn:aws:iam::333333333333:role/gha-ecs-deploy
+      cluster: prod-cluster
+      service: orders-service
+      container-name: app
+      task-definition-family: orders-service-prod
+      image: ${{ needs.image.outputs.image-ref }}

@@ -1,0 +1,26 @@
+# CloudFormation: change set only on PRs (review in console), execute on main
+name: cloudformation
+
+on:
+  pull_request:
+    paths: ["cfn/**"]
+  push:
+    branches: [main]
+    paths: ["cfn/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  network:
+    uses: your-org/github-actions-templates/.github/workflows/aws-cloudformation.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ github.event_name == 'push' && 'production' || 'production-plan' }}
+      template: cfn/network.yaml
+      stack-name: core-network
+      parameter-overrides: "VpcCidr=10.20.0.0/16,Environment=prod"
+      execute-changeset: ${{ github.event_name == 'push' }}
+      aws-role-arn: arn:aws:iam::333333333333:role/gha-cfn-deploy

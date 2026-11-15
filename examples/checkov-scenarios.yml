@@ -1,0 +1,221 @@
+# Checkov in practice: one job per real-world scenario. Pick the ones you need.
+#
+#  1. legacy-baseline     adopt Checkov on an existing repo: fail only on NEW findings
+#  2. org-guardrails      hard-fail on your custom org checks, soft-fail on everything else
+#  3. per-env-strictness  strict config for prod, relaxed for dev (config files per environment)
+#  4. changed-files-only  fast PR feedback: scan only files touched by the PR
+#  5. multi-framework     IaC + K8s + Helm (per-env values) + Dockerfile + GHA + secrets in a matrix
+#  6. plan-scan           scan the Terraform plan JSON (resolved variables & module outputs)
+#  7. pr-comment          summarise failed checks as a sticky PR comment
+#  8. nightly-sarif       full scheduled scan uploaded to GitHub code scanning
+name: checkov-scenarios
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+env:
+  CHECKOV_VERSION: "3.2.334"
+
+jobs:
+  # 1 -------------------------------------------------------------------------------------------
+  # Create the baseline once:  checkov -d infra --create-baseline   (commit infra/.checkov.baseline)
+  legacy-baseline:
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    with:
+      directory: infra
+      framework: terraform
+      baseline: infra/.checkov.baseline
+      external-checks-dirs: policies/checkov/custom_checks
+
+  # 2 -------------------------------------------------------------------------------------------
+  org-guardrails:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      - name: Hard-fail on org checks, report the rest
+        run: |
+          ORG_CHECKS=$(grep -rhoE 'CKV2?_ORG_[0-9]+' policies/checkov/custom_checks | sort -u | paste -sd, -)
+          checkov -d infra \
+            --external-checks-dir policies/checkov/custom_checks \
+            --soft-fail \
+            --hard-fail-on "$ORG_CHECKS" \
+            --compact
+
+  # 3 -------------------------------------------------------------------------------------------
+  per-env-strictness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      # Copy configs/checkov/{dev,prod}.yaml from the template repo to .checkov/ in your repo:
+      #   dev  -> soft-fail with a few hard-fail guardrails + documented skips
+      #   prod -> everything blocks; suppressions only inline with a justification
+      - name: Checkov (${{ matrix.env }})
+        env:
+          ENVIRONMENT: ${{ matrix.env }}
+        run: checkov --config-file ".checkov/${ENVIRONMENT}.yaml" -d "infra/envs/${ENVIRONMENT}"
+
+  # 4 -------------------------------------------------------------------------------------------
+  changed-files-only:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      - name: Scan only changed IaC files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR "$BASE_SHA"...HEAD \
+            | grep -E '\.(tf|ya?ml|json)$|Dockerfile' || true)
+          if [ ${#FILES[@]} -eq 0 ]; then echo "No IaC changes"; exit 0; fi
+          ARGS=()
+          for f in "${FILES[@]}"; do ARGS+=(-f "$f"); done
+          checkov "${ARGS[@]}" --external-checks-dir policies/checkov/custom_checks --compact
+
+  # 5 -------------------------------------------------------------------------------------------
+  multi-framework:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: terraform,      args: "-d infra --framework terraform" }
+          - { name: cloudformation, args: "-d cfn --framework cloudformation" }
+          - { name: kubernetes,     args: "-d k8s --framework kubernetes" }
+          - { name: helm-prod,      args: "-d charts/app --framework helm --var-file charts/app/values-prod.yaml" }
+          - { name: dockerfile,     args: "-d . --framework dockerfile" }
+          - { name: gha,            args: "-d .github/workflows --framework github_actions" }
+          - { name: secrets,        args: "-d . --framework secrets --enable-secret-scan-all-files" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      - uses: azure/setup-helm@v4
+        if: matrix.name == 'helm-prod'
+      - name: Checkov ${{ matrix.name }}
+        env:
+          ARGS: ${{ matrix.args }}
+        run: |
+          # shellcheck disable=SC2086
+          checkov $ARGS --external-checks-dir policies/checkov/custom_checks --compact
+
+  # 6 -------------------------------------------------------------------------------------------
+  plan-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::222222222222:role/gha-terraform-readonly
+          aws-region: us-east-1
+      - name: Plan to JSON
+        working-directory: infra
+        run: |
+          terraform init -backend-config=backends/dev.hcl
+          terraform plan -out=tfplan -var-file=envs/dev.tfvars
+          terraform show -json tfplan > tfplan.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      - name: Checkov on plan (with repo root for suppressions & graph enrichment)
+        run: |
+          checkov -f infra/tfplan.json --framework terraform_plan \
+            --repo-root-for-plan-enrichment infra --deep-analysis \
+            --external-checks-dir policies/checkov/custom_checks --compact
+
+  # 7 -------------------------------------------------------------------------------------------
+  pr-comment:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "checkov==${CHECKOV_VERSION}"
+      - name: Checkov (JSON)
+        id: scan
+        run: |
+          set +e
+          checkov -d infra --external-checks-dir policies/checkov/custom_checks -o json --quiet > checkov.json
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+      - name: Sticky PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = JSON.parse(fs.readFileSync('checkov.json', 'utf8'));
+            const reports = Array.isArray(raw) ? raw : [raw];
+            const failed = reports.flatMap(r => (r.results?.failed_checks ?? []).map(c => ({ ...c, fw: r.check_type })));
+            const passed = reports.reduce((n, r) => n + (r.summary?.passed ?? 0), 0);
+            const marker = '<!-- checkov-summary -->';
+            const rows = failed.slice(0, 50).map(c =>
+              `| \`${c.check_id}\` | ${c.check_name} | \`${c.resource}\` | \`${c.file_path}:${c.file_line_range?.[0] ?? ''}\` |`);
+            const body = failed.length === 0
+              ? `${marker}\n### :white_check_mark: Checkov: ${passed} checks passed, 0 failed`
+              : `${marker}\n### :x: Checkov: ${failed.length} failed / ${passed} passed\n\n| Check | Description | Resource | Location |\n|---|---|---|---|\n${rows.join('\n')}` +
+                (failed.length > 50 ? `\n\n_...and ${failed.length - 50} more_` : '');
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+      - name: Enforce
+        if: steps.scan.outputs.exit != '0'
+        run: exit 1
+
+  # 8 -------------------------------------------------------------------------------------------
+  nightly-sarif:
+    if: github.event_name == 'schedule'
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      directory: .
+      soft-fail: true
+      upload-sarif: true
+      skip-paths: tests/fixtures,node_modules
+      external-checks-dirs: policies/checkov/custom_checks

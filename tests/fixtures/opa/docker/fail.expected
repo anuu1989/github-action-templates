@@ -1,0 +1,10 @@
+FROM ubuntu: pin the base image
+Final USER is 'root'
+looks like a secret
+EXPOSE 22: remote-shell ports must not be exposed
+Do not chmod 777
+Do not disable TLS verification
+Avoid piping remote scripts into a shell
+apt-get install should use --no-install-recommends
+ADD
+CMD uses shell form

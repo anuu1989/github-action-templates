@@ -1,0 +1,43 @@
+# Scan the *plan* (resolved values, module outputs) with Checkov and OPA, in addition to the source code.
+name: terraform-plan-scanning
+
+on:
+  pull_request:
+    paths: ["infra/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    uses: your-org/github-actions-templates/.github/workflows/terraform-plan-apply.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    with:
+      working-directory: infra
+      environment: dev
+      aws-role-arn: arn:aws:iam::222222222222:role/gha-terraform-readonly
+      backend-config: backends/dev.hcl
+      var-file: envs/dev.tfvars
+
+  # The plan artifact is named tfplan-<env>-<working-dir with non-alphanumerics replaced by '-'>
+  checkov-plan:
+    needs: plan
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    with:
+      download-artifact: tfplan-dev-infra
+      file: checkov-input/tfplan.json
+      framework: terraform_plan
+      external-checks-dirs: policies/checkov/custom_checks
+
+  opa-plan:
+    needs: plan
+    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    with:
+      policy-path: policies/opa/terraform
+      download-artifact: tfplan-dev-infra
+      download-path: plan
+      files: plan/tfplan.json
+      data-path: policies/data/dev    # e.g. allowed_instance_families.yaml per environment

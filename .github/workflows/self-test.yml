@@ -1,0 +1,74 @@
+# CI for this template repository itself.
+name: self-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint (reusable workflows + examples)
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color .github/workflows/*.yml examples/*.yml
+
+  opa-policies:
+    uses: ./.github/workflows/opa-conftest.yml
+    with:
+      policy-path: policies/opa
+
+  opa-fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: open-policy-agent/setup-opa@v2
+      - run: opa fmt --list --fail policies/opa
+
+  terraform-example:
+    uses: ./.github/workflows/terraform-static-analysis.yml
+    with:
+      working-directory: examples/terraform/github-oidc
+      run-trivy: false
+
+  checkov-example:
+    uses: ./.github/workflows/checkov.yml
+    with:
+      directory: examples/terraform/github-oidc
+      framework: terraform
+      external-checks-dirs: policies/checkov/custom_checks
+      soft-fail: true
+
+  conftest-scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./actions/setup-policy-tools
+      - name: Pass/fail fixtures + dogfood this repo's workflows
+        run: tests/run-conftest-fixtures.sh
+
+  checkov-scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "checkov==3.2.334"
+      - name: Every custom check matches its expected pass/fail scenarios
+        run: python tests/run-checkov-scenarios.py
+
+  composite-actions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate composite action YAML (yq is preinstalled on ubuntu runners)
+        run: for f in actions/*/action.yml; do yq eval '.runs.using' "$f"; done

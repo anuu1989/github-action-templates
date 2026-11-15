@@ -1,0 +1,118 @@
+# Reusable: AWS CDK (TypeScript/JavaScript/Python). `diff` on PRs, `deploy` on main.
+# Caller permissions needed: contents: read, id-token: write, pull-requests: write (diff comment)
+name: AWS CDK
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "diff or deploy"
+        type: string
+        default: diff
+      environment:
+        type: string
+        default: ""
+      working-directory:
+        type: string
+        default: "."
+      node-version:
+        type: string
+        default: "22"
+      python-version:
+        description: "Install Python (for Python CDK apps)"
+        type: string
+        default: ""
+      install-command:
+        type: string
+        default: npm ci
+      stacks:
+        description: "Stacks to diff/deploy"
+        type: string
+        default: "--all"
+      context:
+        description: "Space-separated -c key=value pairs"
+        type: string
+        default: ""
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        required: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  cdk:
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.mode == 'deploy' && inputs.environment || '' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      STACKS: ${{ inputs.stacks }}
+      CONTEXT: ${{ inputs.context }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - uses: actions/setup-python@v5
+        if: inputs.python-version != ''
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Install
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: eval "$INSTALL_COMMAND"
+
+      - name: cdk synth
+        run: |
+          # shellcheck disable=SC2086
+          npx --yes aws-cdk synth $CONTEXT --quiet
+
+      - name: cdk diff
+        if: inputs.mode == 'diff'
+        run: |
+          # shellcheck disable=SC2086
+          npx --yes aws-cdk diff $STACKS $CONTEXT --no-color 2>&1 | tee cdk-diff.txt
+          { echo "### CDK diff"; echo '```'; head -c 60000 cdk-diff.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment diff on PR
+        if: inputs.mode == 'diff' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          WD: ${{ inputs.working-directory }}
+        with:
+          script: |
+            const fs = require('fs');
+            let diff = fs.readFileSync(`${process.env.WD}/cdk-diff.txt`, 'utf8').slice(0, 60000);
+            const marker = `<!-- cdk-diff:${process.env.WD} -->`;
+            const body = `${marker}\n#### CDK diff \`${process.env.WD}\`\n<details><summary>Show diff</summary>\n\n\`\`\`\n${diff}\n\`\`\`\n</details>`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+      - name: cdk deploy
+        if: inputs.mode == 'deploy'
+        run: |
+          # shellcheck disable=SC2086
+          npx --yes aws-cdk deploy $STACKS $CONTEXT --require-approval never --ci --outputs-file cdk-outputs.json
+
+      - name: Upload outputs
+        if: inputs.mode == 'deploy'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-outputs-${{ inputs.environment || 'default' }}
+          path: ${{ inputs.working-directory }}/cdk-outputs.json
+          if-no-files-found: ignore

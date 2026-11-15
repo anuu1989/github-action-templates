@@ -1,0 +1,24 @@
+# Copy to your repo root (or pass via config-file input). Docs: https://www.checkov.io/2.Basics/CLI%20Command%20Reference.html
+compact: true
+quiet: true
+download-external-modules: true
+evaluate-variables: true
+framework:
+  - terraform
+  - cloudformation
+  - kubernetes
+  - helm
+  - dockerfile
+  - github_actions
+external-checks-dir:
+  - policies/checkov/custom_checks
+skip-path:
+  - .terraform
+  - node_modules
+  - tests/fixtures   # intentionally non-compliant scenario fixtures
+skip-check:
+  # Document every skip with a reason:
+  - CKV_AWS_144  # S3 cross-region replication: not required for non-critical buckets
+  - CKV2_AWS_62  # S3 event notifications: not required
+soft-fail-on:
+  - LOW

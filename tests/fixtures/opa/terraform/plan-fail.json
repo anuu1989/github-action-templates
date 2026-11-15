@@ -1,0 +1,62 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.4.6",
+  "variables": {},
+  "configuration": {
+    "provider_config": {
+      "aws": { "name": "aws", "expressions": { "region": { "constant_value": "ap-southeast-2" } } }
+    },
+    "root_module": {
+      "module_calls": {
+        "random": { "source": "git::https://github.com/someone/terraform-mod.git" }
+      }
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_security_group.bastion", "type": "aws_security_group",
+      "change": { "actions": ["create"], "after": {
+        "ingress": [{ "from_port": 22, "to_port": 22, "protocol": "tcp", "cidr_blocks": ["0.0.0.0/0"], "ipv6_cidr_blocks": [] }],
+        "tags": { "Owner": "ops" }, "tags_all": { "Owner": "ops" } }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_iam_policy.admin", "type": "aws_iam_policy",
+      "change": { "actions": ["create"], "after": {
+        "policy": "{\"Version\":\"2012-10-17\",\"Statement\":{\"Effect\":\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"}}",
+        "tags": null, "tags_all": { "Owner": "ops", "Environment": "prod", "CostCenter": "1" } }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_iam_access_key.ci", "type": "aws_iam_access_key",
+      "change": { "actions": ["create"], "after": { "user": "ci" }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_db_instance.main", "type": "aws_db_instance",
+      "change": { "actions": ["delete", "create"], "after": { "storage_encrypted": false, "publicly_accessible": true,
+        "tags": null, "tags_all": { "Owner": "db", "Environment": "prod", "CostCenter": "1" } }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_lb_listener.web", "type": "aws_lb_listener",
+      "change": { "actions": ["create"], "after": { "protocol": "HTTP", "default_action": [{ "type": "forward" }],
+        "tags": null, "tags_all": { "Owner": "web", "Environment": "prod", "CostCenter": "1" } }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_lambda_function_url.api", "type": "aws_lambda_function_url",
+      "change": { "actions": ["create"], "after": { "authorization_type": "NONE" }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_cloudwatch_log_group.app", "type": "aws_cloudwatch_log_group",
+      "change": { "actions": ["create"], "after": { "retention_in_days": 0, "kms_key_id": null,
+        "tags": null, "tags_all": { "Owner": "web", "Environment": "prod", "CostCenter": "1" } }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_ecr_repository.app", "type": "aws_ecr_repository",
+      "change": { "actions": ["create"], "after": { "image_tag_mutability": "MUTABLE",
+        "tags": null, "tags_all": { "Owner": "web", "Environment": "prod", "CostCenter": "1" } }, "after_unknown": {} }
+    },
+    {
+      "address": "aws_kms_key.app", "type": "aws_kms_key",
+      "change": { "actions": ["create"], "after": { "enable_key_rotation": false, "policy": null,
+        "tags": null, "tags_all": { "Owner": "web", "Environment": "prod", "CostCenter": "1" } }, "after_unknown": { "policy": true } }
+    }
+  ]
+}

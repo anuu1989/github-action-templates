@@ -1,0 +1,95 @@
+# Reusable: deploy a new image to an Amazon ECS service (Fargate or EC2).
+# Caller permissions needed: contents: read, id-token: write
+name: AWS ECS Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      environment-url:
+        type: string
+        default: ""
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        required: true
+      cluster:
+        type: string
+        required: true
+      service:
+        type: string
+        required: true
+      container-name:
+        type: string
+        required: true
+      image:
+        description: "Image reference to deploy (prefer image@sha256:digest)"
+        type: string
+        required: true
+      task-definition-file:
+        description: "Repo-relative task definition JSON (use this OR task-definition-family)"
+        type: string
+        default: ""
+      task-definition-family:
+        description: "Fetch the current revision of this family from AWS and only swap the image"
+        type: string
+        default: ""
+      wait-for-stability:
+        type: boolean
+        default: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runs-on }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.environment-url }}
+    concurrency:
+      group: ecs-${{ inputs.cluster }}-${{ inputs.service }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Resolve task definition
+        id: taskdef
+        env:
+          FILE: ${{ inputs.task-definition-file }}
+          FAMILY: ${{ inputs.task-definition-family }}
+        run: |
+          OUT="$RUNNER_TEMP/task-definition.json"
+          if [ -n "$FILE" ]; then
+            cp "$FILE" "$OUT"
+          elif [ -n "$FAMILY" ]; then
+            aws ecs describe-task-definition --task-definition "$FAMILY" --query taskDefinition > "$OUT"
+          else
+            echo "::error::Set task-definition-file or task-definition-family"; exit 1
+          fi
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Render task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.taskdef.outputs.path }}
+          container-name: ${{ inputs.container-name }}
+          image: ${{ inputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ inputs.cluster }}
+          service: ${{ inputs.service }}
+          wait-for-service-stability: ${{ inputs.wait-for-stability }}

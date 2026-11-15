@@ -1,0 +1,249 @@
+# Reusable: lint Dockerfile, build multi-arch image with BuildKit cache, push to GHCR / ECR / Docker Hub,
+# generate SBOM + provenance, scan with Trivy and optionally sign with cosign (keyless).
+#
+# Caller permissions needed:
+#   contents: read, packages: write (GHCR), id-token: write (ECR OIDC / cosign), security-events: write (SARIF)
+name: Docker Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: "Repository name (ECR repo, 'name' for GHCR, 'org/name' for Docker Hub)"
+        type: string
+        required: true
+      registry:
+        description: "ghcr, ecr or dockerhub"
+        type: string
+        default: ghcr
+      context:
+        type: string
+        default: "."
+      dockerfile:
+        description: "Path to Dockerfile (relative to repo root)"
+        type: string
+        default: Dockerfile
+      platforms:
+        type: string
+        default: linux/amd64
+      push:
+        type: boolean
+        default: true
+      build-args:
+        description: "Newline-separated KEY=VALUE build args"
+        type: string
+        default: ""
+      download-artifact:
+        description: "Download this artifact into the build context first (e.g. a JAR)"
+        type: string
+        default: ""
+      download-path:
+        description: "Where to put the downloaded artifact"
+        type: string
+        default: "."
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        description: "IAM role to assume via OIDC (ECR only)"
+        type: string
+        default: ""
+      lint-dockerfile:
+        type: boolean
+        default: true
+      scan-image:
+        type: boolean
+        default: true
+      scan-severity:
+        type: string
+        default: CRITICAL,HIGH
+      fail-on-vulnerabilities:
+        type: boolean
+        default: true
+      upload-sarif:
+        type: boolean
+        default: false
+      sign-image:
+        description: "Keyless-sign the pushed image with cosign"
+        type: boolean
+        default: false
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+    outputs:
+      image:
+        description: "Fully-qualified image name (without tag)"
+        value: ${{ jobs.build.outputs.image }}
+      digest:
+        description: "Image digest (sha256:...)"
+        value: ${{ jobs.build.outputs.digest }}
+      image-ref:
+        description: "image@digest (immutable reference for deployments)"
+        value: ${{ jobs.build.outputs.image-ref }}
+      tags:
+        value: ${{ jobs.build.outputs.tags }}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
+      image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifact
+        if: inputs.download-artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.download-artifact }}
+          path: ${{ inputs.download-path }}
+
+      - name: Lint Dockerfile (hadolint)
+        if: inputs.lint-dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ inputs.dockerfile }}
+          failure-threshold: error
+
+      - name: Configure AWS credentials
+        if: inputs.registry == 'ecr'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login to Amazon ECR
+        if: inputs.registry == 'ecr'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Login to GHCR
+        if: inputs.registry == 'ghcr'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Login to Docker Hub
+        if: inputs.registry == 'dockerhub'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve image name
+        id: image
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          IMAGE: ${{ inputs.image-name }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          case "$REGISTRY" in
+            ghcr)      NAME="ghcr.io/${OWNER,,}/${IMAGE}" ;;
+            ecr)       NAME="${ECR_REGISTRY}/${IMAGE}" ;;
+            dockerhub) NAME="docker.io/${IMAGE}" ;;
+            *) echo "::error::Unsupported registry '$REGISTRY'"; exit 1 ;;
+          esac
+          echo "name=${NAME,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: contains(inputs.platforms, ',')
+        uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          # Load into the local daemon when not pushing so Trivy can scan it (single-platform only).
+          load: ${{ !inputs.push && !contains(inputs.platforms, ',') }}
+          build-args: ${{ inputs.build-args }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ inputs.image-name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}
+          provenance: ${{ inputs.push && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.push }}
+
+      - name: Pick scan target
+        id: target
+        if: inputs.scan-image
+        env:
+          PUSHED: ${{ inputs.push }}
+          NAME: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [ "$PUSHED" = "true" ]; then echo "ref=${NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          else echo "ref=${NAME}:${VERSION}" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Trivy image scan
+        if: inputs.scan-image
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+          AWS_REGION: ${{ inputs.aws-region }}
+        with:
+          image-ref: ${{ steps.target.outputs.ref }}
+          severity: ${{ inputs.scan-severity }}
+          ignore-unfixed: true
+          format: ${{ inputs.upload-sarif && 'sarif' || 'table' }}
+          output: ${{ inputs.upload-sarif && 'trivy-image.sarif' || '' }}
+          exit-code: ${{ inputs.fail-on-vulnerabilities && '1' || '0' }}
+
+      - name: Upload Trivy SARIF
+        if: always() && inputs.scan-image && inputs.upload-sarif
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image-${{ inputs.image-name }}
+
+      - name: Install cosign
+        if: inputs.sign-image && inputs.push
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        if: inputs.sign-image && inputs.push
+        env:
+          REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$REF"
+
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### :whale: Docker image"
+            echo "**Digest:** \`$DIGEST\`"
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

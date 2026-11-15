@@ -1,0 +1,45 @@
+name: Setup AWS (OIDC)
+description: Assume an IAM role via GitHub OIDC, optionally chain into a second role, and print the caller identity.
+inputs:
+  role-arn:
+    description: IAM role to assume with the GitHub OIDC token
+    required: true
+  region:
+    description: AWS region
+    default: us-east-1
+  chain-role-arn:
+    description: Optional second role to assume using the first role's credentials (cross-account)
+    default: ""
+  session-duration:
+    description: Session duration in seconds
+    default: "3600"
+outputs:
+  account-id:
+    description: AWS account ID of the final identity
+    value: ${{ steps.identity.outputs.account-id }}
+runs:
+  using: composite
+  steps:
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.region }}
+        role-duration-seconds: ${{ inputs.session-duration }}
+        role-session-name: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        mask-aws-account-id: false
+
+    - if: inputs.chain-role-arn != ''
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.chain-role-arn }}
+        aws-region: ${{ inputs.region }}
+        role-chaining: true
+        role-session-name: gha-chain-${{ github.run_id }}
+
+    - id: identity
+      shell: bash
+      run: |
+        ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+        ARN=$(aws sts get-caller-identity --query Arn --output text)
+        echo "account-id=$ACCOUNT" >> "$GITHUB_OUTPUT"
+        echo "Authenticated to AWS as \`$ARN\`" >> "$GITHUB_STEP_SUMMARY"

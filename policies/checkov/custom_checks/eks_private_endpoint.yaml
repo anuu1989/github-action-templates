@@ -1,0 +1,22 @@
+# EKS API endpoint must be private, or public but restricted to known CIDRs.
+metadata:
+  id: "CKV2_ORG_5"
+  name: "Ensure the EKS API endpoint is not open to 0.0.0.0/0"
+  category: "NETWORKING"
+definition:
+  or:
+    - cond_type: attribute
+      resource_types: ["aws_eks_cluster"]
+      attribute: vpc_config.endpoint_public_access
+      operator: equals
+      value: false
+    - and:
+        - cond_type: attribute
+          resource_types: ["aws_eks_cluster"]
+          attribute: vpc_config.public_access_cidrs
+          operator: exists
+        - cond_type: attribute
+          resource_types: ["aws_eks_cluster"]
+          attribute: vpc_config.public_access_cidrs
+          operator: not_contains
+          value: "0.0.0.0/0"

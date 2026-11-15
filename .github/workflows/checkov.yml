@@ -1,0 +1,99 @@
+# Reusable: Checkov IaC scanning (Terraform, Terraform plan, CloudFormation, Kubernetes, Helm, Dockerfile,
+# GitHub Actions, ...) with optional custom policies and SARIF upload to GitHub code scanning.
+#
+# Caller permissions needed: contents: read (+ security-events: write when upload-sarif: true)
+name: Checkov
+
+on:
+  workflow_call:
+    inputs:
+      directory:
+        type: string
+        default: "."
+      file:
+        description: "Scan a single file instead of a directory (e.g. tfplan.json)"
+        type: string
+        default: ""
+      download-artifact:
+        description: "Download this artifact first (e.g. a terraform plan artifact) into ./checkov-input"
+        type: string
+        default: ""
+      framework:
+        description: "Comma-separated frameworks (terraform,terraform_plan,kubernetes,helm,dockerfile,cloudformation,github_actions,...)"
+        type: string
+        default: ""
+      config-file:
+        description: "Repo-relative .checkov.yaml"
+        type: string
+        default: ""
+      external-checks-dirs:
+        description: "Directory of custom Checkov policies (Python/YAML)"
+        type: string
+        default: ""
+      checks:
+        description: "Run ONLY these comma-separated check IDs (e.g. your org's CKV_ORG_* checks)"
+        type: string
+        default: ""
+      skip-checks:
+        description: "Comma-separated check IDs to skip"
+        type: string
+        default: ""
+      skip-paths:
+        description: "Comma-separated regex paths to skip (e.g. vendor/,test/fixtures)"
+        type: string
+        default: ""
+      baseline:
+        description: "Repo-relative .checkov.baseline: only findings NOT in the baseline fail the build"
+        type: string
+        default: ""
+      soft-fail:
+        type: boolean
+        default: false
+      download-external-modules:
+        type: boolean
+        default: true
+      upload-sarif:
+        type: boolean
+        default: false
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  checkov:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download input artifact
+        if: inputs.download-artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.download-artifact }}
+          path: checkov-input
+
+      - name: Run Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ${{ inputs.file == '' && inputs.directory || '' }}
+          file: ${{ inputs.file }}
+          framework: ${{ inputs.framework }}
+          config_file: ${{ inputs.config-file }}
+          external_checks_dirs: ${{ inputs.external-checks-dirs }}
+          check: ${{ inputs.checks }}
+          skip_check: ${{ inputs.skip-checks }}
+          skip_path: ${{ inputs.skip-paths }}
+          baseline: ${{ inputs.baseline }}
+          soft_fail: ${{ inputs.soft-fail }}
+          download_external_modules: ${{ inputs.download-external-modules }}
+          output_format: cli,sarif
+          output_file_path: console,checkov.sarif
+          quiet: true
+
+      - name: Upload SARIF
+        if: always() && inputs.upload-sarif
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+          category: checkov

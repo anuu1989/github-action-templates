@@ -1,0 +1,124 @@
+# Reusable: scheduled drift detection. Runs `terraform plan -detailed-exitcode` and opens / updates /
+# closes a GitHub issue per stack.
+#
+# Caller permissions needed: contents: read, id-token: write, issues: write
+name: Terraform Drift Detection
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        required: true
+      stack-name:
+        description: "Friendly name used in the issue title (default: working-directory)"
+        type: string
+        default: ""
+      terraform-version:
+        type: string
+        default: "1.9.8"
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        default: ""
+      backend-config:
+        type: string
+        default: ""
+      var-file:
+        type: string
+        default: ""
+      issue-labels:
+        description: "Comma-separated labels for the drift issue"
+        type: string
+        default: "terraform-drift"
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      TF_API_TOKEN:
+        required: false
+    outputs:
+      drifted:
+        value: ${{ jobs.drift.outputs.drifted }}
+
+jobs:
+  drift:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      drifted: ${{ steps.plan.outputs.drifted }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      BACKEND_CONFIG: ${{ inputs.backend-config }}
+      VAR_FILE: ${{ inputs.var-file }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        if: inputs.aws-role-arn != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: |
+          ARGS=()
+          [ -n "$BACKEND_CONFIG" ] && ARGS+=("-backend-config=$BACKEND_CONFIG")
+          terraform init "${ARGS[@]}"
+
+      - name: terraform plan (drift)
+        id: plan
+        run: |
+          ARGS=(-detailed-exitcode -no-color -lock=false)
+          [ -n "$VAR_FILE" ] && ARGS+=("-var-file=$VAR_FILE")
+          set +e
+          terraform plan "${ARGS[@]}" > plan.txt 2>&1
+          rc=$?
+          set -e
+          cat plan.txt
+          if [ "$rc" -eq 1 ]; then echo "::error::terraform plan failed"; exit 1; fi
+          echo "drifted=$([ "$rc" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Open / update / close drift issue
+        uses: actions/github-script@v7
+        env:
+          WD: ${{ inputs.working-directory }}
+          STACK: ${{ inputs.stack-name || inputs.working-directory }}
+          DRIFTED: ${{ steps.plan.outputs.drifted }}
+          LABELS: ${{ inputs.issue-labels }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { WD, STACK, DRIFTED, LABELS } = process.env;
+            const title = `Terraform drift detected: ${STACK}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', labels: LABELS.split(',')[0], per_page: 100,
+            });
+            const existing = issues.find(i => i.title === title);
+            if (DRIFTED === 'true') {
+              let plan = fs.readFileSync(`${WD}/plan.txt`, 'utf8');
+              if (plan.length > 60000) plan = plan.slice(0, 60000) + '\n... (truncated)';
+              const body = `Drift detected in \`${WD}\` on ${new Date().toISOString()}.\n\n[Workflow run](${runUrl})\n\n<details><summary>Plan</summary>\n\n\`\`\`hcl\n${plan}\n\`\`\`\n</details>`;
+              if (existing) {
+                await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+              } else {
+                await github.rest.issues.create({ ...context.repo, title, body, labels: LABELS.split(',').map(s => s.trim()) });
+              }
+              core.warning(title);
+            } else if (existing) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body: `No drift detected anymore ([run](${runUrl})). Closing.` });
+              await github.rest.issues.update({ ...context.repo, issue_number: existing.number, state: 'closed' });
+            }

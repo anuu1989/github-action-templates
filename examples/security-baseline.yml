@@ -1,0 +1,70 @@
+# Org-wide security baseline: SAST, SCA, secrets, IaC, workflow linting and dependency review.
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "30 3 * * 1"   # weekly full scan
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    uses: your-org/github-actions-templates/.github/workflows/codeql.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      languages: '["javascript-typescript","python","actions"]'
+
+  secrets:
+    uses: your-org/github-actions-templates/.github/workflows/secret-scan.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      upload-sarif: true
+
+  trivy-fs:
+    uses: your-org/github-actions-templates/.github/workflows/trivy-scan.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      scan-type: fs
+      scanners: vuln,secret,misconfig,license
+      upload-sarif: true
+
+  checkov-workflows:
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    with:
+      directory: .github/workflows
+      framework: github_actions
+      soft-fail: true
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
+          comment-summary-in-pr: on-failure
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color

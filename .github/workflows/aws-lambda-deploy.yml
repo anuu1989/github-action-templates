@@ -1,0 +1,103 @@
+# Reusable: deploy code to an existing AWS Lambda function (zip or container image),
+# publish a version and move an alias to it (enables blue/green / rollback).
+# Caller permissions needed: contents: read, id-token: write
+name: AWS Lambda Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        required: true
+      function-name:
+        type: string
+        required: true
+      package-type:
+        description: "zip or image"
+        type: string
+        default: zip
+      artifact-name:
+        description: "Artifact holding the zip (zip mode)"
+        type: string
+        default: ""
+      zip-file:
+        description: "Path of the zip after download (zip mode)"
+        type: string
+        default: function.zip
+      image-uri:
+        description: "ECR image URI (image mode)"
+        type: string
+        default: ""
+      alias:
+        description: "Alias to point at the new version (empty = skip)"
+        type: string
+        default: live
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    outputs:
+      version:
+        value: ${{ jobs.deploy.outputs.version }}
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: lambda-${{ inputs.function-name }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
+    env:
+      FN: ${{ inputs.function-name }}
+    steps:
+      - name: Download artifact
+        if: inputs.artifact-name != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Update function code
+        env:
+          TYPE: ${{ inputs.package-type }}
+          ZIP: ${{ inputs.zip-file }}
+          IMAGE: ${{ inputs.image-uri }}
+        run: |
+          if [ "$TYPE" = "image" ]; then
+            aws lambda update-function-code --function-name "$FN" --image-uri "$IMAGE" > /dev/null
+          else
+            aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" > /dev/null
+          fi
+          aws lambda wait function-updated --function-name "$FN"
+
+      - name: Publish version
+        id: publish
+        run: |
+          VERSION=$(aws lambda publish-version --function-name "$FN" \
+            --description "${GITHUB_REPOSITORY}@${GITHUB_SHA::7} run ${GITHUB_RUN_ID}" \
+            --query Version --output text)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Published $FN version $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Move alias
+        if: inputs.alias != ''
+        env:
+          ALIAS: ${{ inputs.alias }}
+          VERSION: ${{ steps.publish.outputs.version }}
+        run: |
+          if aws lambda get-alias --function-name "$FN" --name "$ALIAS" > /dev/null 2>&1; then
+            aws lambda update-alias --function-name "$FN" --name "$ALIAS" --function-version "$VERSION"
+          else
+            aws lambda create-alias --function-name "$FN" --name "$ALIAS" --function-version "$VERSION"
+          fi

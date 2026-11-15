@@ -1,0 +1,31 @@
+# Java library built with Gradle on multiple JDKs + SonarQube quality gate
+name: java-library
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    with:
+      build-tool: gradle
+      java-versions: '["17","21"]'
+      distribution: corretto
+      build-args: "jacocoTestReport"
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sonar:
+    needs: build
+    uses: your-org/github-actions-templates/.github/workflows/sonarqube.yml@v1
+    with:
+      project-key: acme_java-library
+      extra-args: -Dsonar.java.binaries=build/classes
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

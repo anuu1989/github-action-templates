@@ -1,0 +1,46 @@
+# CI for a central policy-as-code repository (OPA + Checkov custom checks)
+name: policy-library
+
+on:
+  pull_request:
+    paths: ["policies/**"]
+  push:
+    branches: [main]
+    paths: ["policies/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  opa:
+    strategy:
+      matrix:
+        domain: [terraform, kubernetes, docker, github-actions]
+    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    with:
+      policy-path: policies/opa/${{ matrix.domain }}
+
+  opa-fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: open-policy-agent/setup-opa@v2
+      - run: opa fmt --list --fail policies/opa
+
+  checkov-custom-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install checkov
+      - name: Custom checks match expected pass/fail scenarios
+        run: python tests/run-checkov-scenarios.py
+
+  conftest-scenarios:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: your-org/github-actions-templates/actions/setup-policy-tools@v1
+      - run: tests/run-conftest-fixtures.sh

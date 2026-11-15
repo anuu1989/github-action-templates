@@ -1,0 +1,63 @@
+# Reusable: SonarQube / SonarCloud scan with quality-gate enforcement.
+# For Maven/Gradle projects prefer the build plugins (mvn sonar:sonar); this uses the generic scanner.
+name: SonarQube
+
+on:
+  workflow_call:
+    inputs:
+      project-key:
+        type: string
+        required: true
+      working-directory:
+        type: string
+        default: "."
+      extra-args:
+        description: "Extra -D args, e.g. -Dsonar.sources=src -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info"
+        type: string
+        default: ""
+      coverage-artifact:
+        description: "Download coverage reports artifact into working-directory before scanning"
+        type: string
+        default: ""
+      wait-for-quality-gate:
+        type: boolean
+        default: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      SONAR_TOKEN:
+        required: true
+      SONAR_HOST_URL:
+        description: "Omit for SonarCloud"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  sonar:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for blame / new-code detection
+
+      - name: Download coverage
+        if: inputs.coverage-artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.coverage-artifact }}
+          path: ${{ inputs.working-directory }}
+
+      - name: SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          projectBaseDir: ${{ inputs.working-directory }}
+          args: >
+            -Dsonar.projectKey=${{ inputs.project-key }}
+            -Dsonar.qualitygate.wait=${{ inputs.wait-for-quality-gate }}
+            ${{ inputs.extra-args }}

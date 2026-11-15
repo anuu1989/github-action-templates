@@ -1,0 +1,39 @@
+# AWS CDK (TypeScript): diff on PRs (commented), deploy on main
+name: cdk
+
+on:
+  pull_request:
+    paths: ["cdk/**"]
+  push:
+    branches: [main]
+    paths: ["cdk/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    if: github.event_name == 'pull_request'
+    uses: your-org/github-actions-templates/.github/workflows/aws-cdk.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    with:
+      mode: diff
+      working-directory: cdk
+      aws-role-arn: arn:aws:iam::222222222222:role/gha-cdk-readonly
+      context: "-c stage=prod"
+
+  deploy:
+    if: github.event_name == 'push'
+    uses: your-org/github-actions-templates/.github/workflows/aws-cdk.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      mode: deploy
+      environment: production
+      working-directory: cdk
+      aws-role-arn: arn:aws:iam::333333333333:role/gha-cdk-deploy
+      context: "-c stage=prod"

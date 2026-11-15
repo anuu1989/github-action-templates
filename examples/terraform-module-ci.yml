@@ -1,0 +1,39 @@
+# CI for a reusable Terraform *module* repo: static checks, docs drift, terraform test, and release tags.
+name: terraform-module
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    uses: your-org/github-actions-templates/.github/workflows/terraform-static-analysis.yml@v1
+    with:
+      run-terraform-docs: true
+
+  checkov:
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    with:
+      framework: terraform
+      download-external-modules: false
+
+  terraform-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::555555555555:role/gha-terraform-sandbox
+          aws-region: us-east-1
+      - run: terraform init -backend=false
+      - run: terraform test -verbose     # runs tests/*.tftest.hcl

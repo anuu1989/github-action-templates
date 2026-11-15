@@ -1,0 +1,35 @@
+# AWS SAM serverless app (Python) deployed to dev then prod
+name: sam
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dev:
+    uses: your-org/github-actions-templates/.github/workflows/aws-sam.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: dev
+      stack-name: orders-api-dev
+      python-version: "3.12"
+      parameter-overrides: "Stage=dev LogLevel=DEBUG"
+      aws-role-arn: arn:aws:iam::222222222222:role/gha-sam-deploy
+
+  prod:
+    needs: dev
+    uses: your-org/github-actions-templates/.github/workflows/aws-sam.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: production
+      stack-name: orders-api
+      python-version: "3.12"
+      parameter-overrides: "Stage=prod LogLevel=INFO"
+      aws-role-arn: arn:aws:iam::333333333333:role/gha-sam-deploy

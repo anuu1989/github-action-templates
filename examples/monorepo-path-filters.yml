@@ -1,0 +1,70 @@
+# Monorepo: only run the pipelines whose files changed
+name: monorepo
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      infra: ${{ steps.filter.outputs.infra }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'services/api/**'
+            web:
+              - 'apps/web/**'
+            infra:
+              - 'infra/**'
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    with:
+      working-directory: services/api
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    uses: your-org/github-actions-templates/.github/workflows/node-build.yml@v1
+    with:
+      working-directory: apps/web
+      cache-dependency-path: apps/web/package-lock.json
+
+  infra:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    uses: your-org/github-actions-templates/.github/workflows/terraform-static-analysis.yml@v1
+    with:
+      working-directory: infra
+
+  # Single required status check for branch protection, regardless of which jobs ran
+  ci-ok:
+    if: always()
+    needs: [api, web, infra]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then exit 1; fi
+          done

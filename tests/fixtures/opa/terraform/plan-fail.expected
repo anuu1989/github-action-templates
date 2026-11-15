@@ -1,0 +1,17 @@
+aws_security_group.bastion allows ingress from 0.0.0.0/0 to port 22
+aws_security_group.bastion is missing required tags
+aws_iam_policy.admin grants full admin
+aws_iam_access_key.ci creates a long-lived IAM access key
+aws_db_instance.main must set storage_encrypted = true
+aws_db_instance.main must not be publicly_accessible
+aws_db_instance.main is a protected stateful resource
+aws_lb_listener.web: HTTP listeners must redirect to HTTPS
+aws_lambda_function_url.api: function URL with authorization_type NONE
+aws_cloudwatch_log_group.app must set retention_in_days
+aws_ecr_repository.app must set image_tag_mutability
+aws_ecr_repository.app must enable image_scanning_configuration.scan_on_push
+aws_kms_key.app must set enable_key_rotation = true
+targets region 'ap-southeast-2'
+plan produced by Terraform 1.4.6
+module.random source 'git::https://github.com/someone/terraform-mod.git' is not from an approved location
+module.random git source must be pinned

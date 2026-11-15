@@ -1,0 +1,13 @@
+# Relaxed profile for dev/sandbox accounts: report everything, block nothing except org guardrails.
+compact: true
+framework: [terraform]
+external-checks-dir: [policies/checkov/custom_checks]
+soft-fail: true
+hard-fail-on:
+  - CKV_ORG_3   # no IAM admin wildcards, even in dev
+  - CKV2_ORG_5  # no open EKS API endpoints
+skip-check:
+  - CKV_AWS_144   # cross-region replication
+  - CKV2_AWS_62   # S3 event notifications
+  - CKV_AWS_18    # S3 access logging
+  - CKV2_ORG_8    # WAF on public ALBs

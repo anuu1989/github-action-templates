@@ -1,0 +1,100 @@
+# Reusable: validate Kubernetes manifests / Helm charts:
+#   helm lint + helm template -> kubeconform schema validation -> conftest (OPA) policy checks
+name: Kubernetes Validate
+
+on:
+  workflow_call:
+    inputs:
+      manifests-path:
+        description: "Directory of raw manifests (empty = skip)"
+        type: string
+        default: ""
+      helm-chart-path:
+        description: "Helm chart directory to lint and render (empty = skip)"
+        type: string
+        default: ""
+      helm-values-files:
+        description: "Newline-separated values files for helm template"
+        type: string
+        default: ""
+      kubernetes-version:
+        type: string
+        default: "1.31.0"
+      kubeconform-version:
+        type: string
+        default: v0.6.7
+      policy-path:
+        description: "Rego policies for conftest (empty = skip)"
+        type: string
+        default: ""
+      conftest-version:
+        type: string
+        default: "0.56.0"
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        env:
+          KUBECONFORM_VERSION: ${{ inputs.kubeconform-version }}
+          CONFTEST_VERSION: ${{ inputs.conftest-version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" kubeconform
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" conftest
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - uses: azure/setup-helm@v4
+        if: inputs.helm-chart-path != ''
+
+      - name: Helm lint & template
+        if: inputs.helm-chart-path != ''
+        env:
+          CHART: ${{ inputs.helm-chart-path }}
+          VALUES: ${{ inputs.helm-values-files }}
+        run: |
+          ARGS=()
+          while IFS= read -r f; do [ -n "$f" ] && ARGS+=(-f "$f"); done <<< "$VALUES"
+          helm dependency build "$CHART" || true
+          helm lint "$CHART" "${ARGS[@]}" --strict
+          mkdir -p rendered
+          helm template ci-release "$CHART" "${ARGS[@]}" > rendered/chart.yaml
+
+      - name: kubeconform
+        env:
+          MANIFESTS: ${{ inputs.manifests-path }}
+          K8S_VERSION: ${{ inputs.kubernetes-version }}
+        run: |
+          TARGETS=()
+          [ -n "$MANIFESTS" ] && TARGETS+=("$MANIFESTS")
+          [ -d rendered ] && TARGETS+=(rendered)
+          if [ ${#TARGETS[@]} -eq 0 ]; then echo "Nothing to validate"; exit 0; fi
+          kubeconform -strict -summary -output text \
+            -kubernetes-version "$K8S_VERSION" \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -ignore-missing-schemas \
+            "${TARGETS[@]}"
+
+      - name: conftest (OPA policies)
+        if: inputs.policy-path != ''
+        env:
+          POLICY: ${{ inputs.policy-path }}
+          MANIFESTS: ${{ inputs.manifests-path }}
+        run: |
+          TARGETS=()
+          [ -n "$MANIFESTS" ] && TARGETS+=("$MANIFESTS")
+          [ -d rendered ] && TARGETS+=(rendered)
+          [ ${#TARGETS[@]} -eq 0 ] && exit 0
+          conftest test --policy "$POLICY" --all-namespaces --output github "${TARGETS[@]}"

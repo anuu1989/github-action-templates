@@ -1,0 +1,22 @@
+# Symmetric keys (the default) must rotate; asymmetric/HMAC keys cannot rotate and are exempt.
+metadata:
+  id: "CKV2_ORG_3"
+  name: "Ensure symmetric KMS keys have rotation enabled"
+  category: "ENCRYPTION"
+definition:
+  or:
+    - cond_type: attribute
+      resource_types: ["aws_kms_key"]
+      attribute: enable_key_rotation
+      operator: equals
+      value: true
+    - and:
+        - cond_type: attribute
+          resource_types: ["aws_kms_key"]
+          attribute: customer_master_key_spec
+          operator: exists
+        - cond_type: attribute
+          resource_types: ["aws_kms_key"]
+          attribute: customer_master_key_spec
+          operator: not_equals
+          value: SYMMETRIC_DEFAULT

@@ -1,0 +1,113 @@
+# Reusable: build & test a Java application with Maven or Gradle across one or more JDKs.
+name: Java Build
+
+on:
+  workflow_call:
+    inputs:
+      build-tool:
+        description: "maven or gradle"
+        type: string
+        default: maven
+      java-versions:
+        description: 'JSON array of JDK versions, e.g. ["17","21"]'
+        type: string
+        default: '["21"]'
+      distribution:
+        description: "JDK distribution (temurin, corretto, zulu, microsoft, ...)"
+        type: string
+        default: temurin
+      working-directory:
+        type: string
+        default: "."
+      build-args:
+        description: "Extra arguments appended to the mvn/gradle command"
+        type: string
+        default: ""
+      run-tests:
+        type: boolean
+        default: true
+      artifact-name:
+        description: "Upload build output under this artifact name (empty = skip)"
+        type: string
+        default: ""
+      artifact-path:
+        description: "Glob of files to upload, relative to working-directory"
+        type: string
+        default: "target/*.jar"
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      PACKAGES_TOKEN:
+        description: "Optional token for private registries, exposed as env PACKAGES_TOKEN"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (JDK ${{ matrix.java }})
+    runs-on: ${{ inputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ${{ fromJSON(inputs.java-versions) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+      RUN_TESTS: ${{ inputs.run-tests }}
+      BUILD_ARGS: ${{ inputs.build-args }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: ${{ inputs.distribution }}
+          java-version: ${{ matrix.java }}
+          # setup-gradle has its own (better) cache, so only let setup-java cache Maven.
+          cache: ${{ inputs.build-tool == 'maven' && 'maven' || '' }}
+
+      - name: Setup Gradle
+        if: inputs.build-tool == 'gradle'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build with Maven
+        if: inputs.build-tool == 'maven'
+        run: |
+          MVN=mvn; [ -x ./mvnw ] && MVN=./mvnw
+          SKIP=""; [ "$RUN_TESTS" = "true" ] || SKIP="-DskipTests"
+          # shellcheck disable=SC2086
+          $MVN -B -ntp $SKIP verify $BUILD_ARGS
+
+      - name: Build with Gradle
+        if: inputs.build-tool == 'gradle'
+        run: |
+          GRADLE=gradle; [ -x ./gradlew ] && GRADLE=./gradlew
+          SKIP=""; [ "$RUN_TESTS" = "true" ] || SKIP="-x test"
+          # shellcheck disable=SC2086
+          $GRADLE build --no-daemon $SKIP $BUILD_ARGS
+
+      - name: Upload test reports
+        if: always() && inputs.run-tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-jdk${{ matrix.java }}
+          path: |
+            ${{ inputs.working-directory }}/**/target/surefire-reports/
+            ${{ inputs.working-directory }}/**/target/failsafe-reports/
+            ${{ inputs.working-directory }}/**/build/test-results/
+            ${{ inputs.working-directory }}/**/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload build artifact
+        if: inputs.artifact-name != '' && strategy.job-index == 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/${{ inputs.artifact-path }}
+          if-no-files-found: error
+          retention-days: 7

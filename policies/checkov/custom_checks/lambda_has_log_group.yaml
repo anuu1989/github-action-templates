@@ -1,0 +1,15 @@
+# Connection policy: every Lambda function needs a Terraform-managed log group (so retention/KMS are controlled).
+metadata:
+  id: "CKV2_ORG_7"
+  name: "Ensure Lambda functions have a managed aws_cloudwatch_log_group"
+  category: "LOGGING"
+definition:
+  and:
+    - cond_type: filter
+      attribute: resource_type
+      value: ["aws_lambda_function"]
+      operator: within
+    - cond_type: connection
+      resource_types: ["aws_lambda_function"]
+      connected_resource_types: ["aws_cloudwatch_log_group"]
+      operator: exists

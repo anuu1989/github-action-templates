@@ -1,0 +1,51 @@
+# Node/React SPA: build on Node 20 & 22, deploy to S3 + CloudFront (staging on main, prod on release)
+name: web-frontend
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: your-org/github-actions-templates/.github/workflows/node-build.yml@v1
+    with:
+      node-versions: '["20","22"]'
+      package-manager: pnpm
+      artifact-name: web-dist
+      artifact-path: dist
+
+  deploy-staging:
+    if: github.event_name == 'push'
+    needs: build
+    uses: your-org/github-actions-templates/.github/workflows/aws-s3-static-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: staging
+      environment-url: https://staging.example.com
+      artifact-name: web-dist
+      bucket: acme-web-staging
+      cloudfront-distribution-id: E1234567890ABC
+      aws-role-arn: arn:aws:iam::222222222222:role/gha-web-deploy
+
+  deploy-prod:
+    if: github.event_name == 'release'
+    needs: build
+    uses: your-org/github-actions-templates/.github/workflows/aws-s3-static-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: production
+      environment-url: https://www.example.com
+      artifact-name: web-dist
+      bucket: acme-web-prod
+      cloudfront-distribution-id: E0987654321XYZ
+      aws-role-arn: arn:aws:iam::333333333333:role/gha-web-deploy

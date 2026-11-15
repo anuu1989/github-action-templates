@@ -1,0 +1,56 @@
+# PR hygiene: conventional-commit titles, path labels, size labels
+name: pr-hygiene
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            perf
+            test
+            ci
+            build
+            revert
+          requireScope: false
+
+  labels:
+    runs-on: ubuntu-latest
+    steps:
+      # pull_request_target: never check out / run PR code here
+      - uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yml   # see configs/labeler.yml
+          sync-labels: true
+
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const lines = pr.additions + pr.deletions;
+            const size = lines < 10 ? 'XS' : lines < 100 ? 'S' : lines < 500 ? 'M' : lines < 1000 ? 'L' : 'XL';
+            const label = `size/${size}`;
+            const current = pr.labels.map(l => l.name).filter(n => n.startsWith('size/') && n !== label);
+            for (const name of current) {
+              await github.rest.issues.removeLabel({ ...context.repo, issue_number: pr.number, name });
+            }
+            await github.rest.issues.addLabels({ ...context.repo, issue_number: pr.number, labels: [label] });

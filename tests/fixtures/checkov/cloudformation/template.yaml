@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Checkov custom-check scenarios (CKV_ORG_10, CKV_ORG_11)
+Resources:
+  PassLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /app/pass
+      RetentionInDays: 90
+  FailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /app/fail
+  FailShortRetentionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /app/short
+      RetentionInDays: 7
+  PassFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: app.handler
+      Role: arn:aws:iam::123456789012:role/lambda
+      Code: { ZipFile: "def handler(e, c): return 1" }
+  FailFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: arn:aws:iam::123456789012:role/lambda
+      Code: { ZipFile: "exports.handler = async () => 1" }
+  FailSamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      Handler: app.handler
+      CodeUri: ./src

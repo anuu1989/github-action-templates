@@ -1,0 +1,114 @@
+# Reusable: lint (ruff), type-check (mypy), test (pytest + coverage) and package a Python project.
+name: Python Build
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'JSON array of Python versions, e.g. ["3.11","3.12"]'
+        type: string
+        default: '["3.12"]'
+      working-directory:
+        type: string
+        default: "."
+      install-command:
+        description: "Override dependency install command"
+        type: string
+        default: ""
+      run-ruff:
+        type: boolean
+        default: true
+      run-mypy:
+        type: boolean
+        default: false
+      pytest-args:
+        type: string
+        default: ""
+      build-package:
+        description: "Run 'python -m build' and upload dist/ (requires artifact-name)"
+        type: boolean
+        default: false
+      artifact-name:
+        type: string
+        default: ""
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (Python ${{ matrix.python }})
+    runs-on: ${{ inputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(inputs.python-versions) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install dependencies
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ -n "$INSTALL_COMMAND" ]; then eval "$INSTALL_COMMAND"; else
+            if   [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt
+            elif [ -f requirements.txt ];     then pip install -r requirements.txt; fi
+            if [ -f pyproject.toml ]; then pip install -e ".[dev]" || pip install -e .; fi
+          fi
+          pip install pytest pytest-cov
+
+      - name: Ruff (lint + format check)
+        if: inputs.run-ruff
+        run: |
+          pip install ruff
+          ruff check --output-format=github .
+          ruff format --check .
+
+      - name: Mypy
+        if: inputs.run-mypy
+        run: |
+          pip install mypy
+          mypy .
+
+      - name: Pytest
+        env:
+          PYTEST_ARGS: ${{ inputs.pytest-args }}
+        run: |
+          # shellcheck disable=SC2086
+          pytest --junitxml=pytest-report.xml --cov --cov-report=xml --cov-report=term $PYTEST_ARGS
+
+      - name: Upload test & coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-reports-${{ matrix.python }}
+          path: |
+            ${{ inputs.working-directory }}/pytest-report.xml
+            ${{ inputs.working-directory }}/coverage.xml
+          if-no-files-found: ignore
+
+      - name: Build package
+        if: inputs.build-package && strategy.job-index == 0
+        run: |
+          pip install build
+          python -m build
+
+      - name: Upload dist
+        if: inputs.build-package && inputs.artifact-name != '' && strategy.job-index == 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/dist/
+          if-no-files-found: error

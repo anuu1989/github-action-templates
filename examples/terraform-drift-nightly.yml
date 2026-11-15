@@ -1,0 +1,37 @@
+# Nightly drift detection for every stack; opens/updates/closes an issue per stack.
+name: terraform-drift
+
+on:
+  schedule:
+    - cron: "0 5 * * 1-5"   # 05:00 UTC, weekdays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: network-prod
+            dir: infra/network
+            env: prod
+            role: arn:aws:iam::333333333333:role/gha-terraform-readonly
+          - stack: app-prod
+            dir: infra/app
+            env: prod
+            role: arn:aws:iam::333333333333:role/gha-terraform-readonly
+    uses: your-org/github-actions-templates/.github/workflows/terraform-drift-detection.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    with:
+      stack-name: ${{ matrix.stack }}
+      working-directory: ${{ matrix.dir }}
+      aws-role-arn: ${{ matrix.role }}
+      backend-config: backends/${{ matrix.env }}.hcl
+      var-file: envs/${{ matrix.env }}.tfvars
+      issue-labels: terraform-drift,${{ matrix.env }}

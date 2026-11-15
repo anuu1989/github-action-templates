@@ -1,0 +1,77 @@
+# Terraform on AWS: full PR -> plan -> policy -> apply flow across dev / staging / prod.
+#
+# Repo layout assumed:
+#   infra/
+#     main.tf, variables.tf, .terraform.lock.hcl, .tflint.hcl
+#     backends/{dev,staging,prod}.hcl     # bucket/key/region/dynamodb_table (or use_lockfile)
+#     envs/{dev,staging,prod}.tfvars
+#   policies/opa/terraform/*.rego         # copied from this template repo
+#   policies/checkov/custom_checks/
+name: terraform
+
+on:
+  pull_request:
+    paths: ["infra/**", "policies/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/**", "policies/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a running apply
+
+jobs:
+  # 1) Credential-free checks: safe for forks
+  static:
+    uses: your-org/github-actions-templates/.github/workflows/terraform-static-analysis.yml@v1
+    with:
+      working-directory: infra
+
+  checkov:
+    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      directory: infra
+      framework: terraform
+      external-checks-dirs: policies/checkov/custom_checks
+      upload-sarif: true
+
+  policy-unit-tests:
+    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    with:
+      policy-path: policies/opa/terraform
+
+  # 2) Plan every environment (PR comment per env) + OPA gate on plan JSON.
+  #    On main, apply sequentially with GitHub Environment approvals.
+  terraform:
+    needs: [static, checkov, policy-unit-tests]
+    strategy:
+      fail-fast: true
+      max-parallel: 1           # dev -> staging -> prod, in order
+      matrix:
+        include:
+          - env: dev
+            role: arn:aws:iam::222222222222:role/gha-terraform
+          - env: staging
+            role: arn:aws:iam::444444444444:role/gha-terraform
+          - env: prod
+            role: arn:aws:iam::333333333333:role/gha-terraform
+    uses: your-org/github-actions-templates/.github/workflows/terraform-plan-apply.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    with:
+      working-directory: infra
+      environment: ${{ matrix.env }}
+      aws-role-arn: ${{ matrix.role }}
+      backend-config: backends/${{ matrix.env }}.hcl
+      var-file: envs/${{ matrix.env }}.tfvars
+      opa-policy-path: policies/opa/terraform
+      apply: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}

@@ -1,0 +1,76 @@
+# Reusable: lint (golangci-lint), vet, test (race + coverage) and build a Go module.
+name: Go Build
+
+on:
+  workflow_call:
+    inputs:
+      go-version-file:
+        type: string
+        default: go.mod
+      working-directory:
+        type: string
+        default: "."
+      golangci-lint-version:
+        type: string
+        default: v1.64
+      run-lint:
+        type: boolean
+        default: true
+      build-target:
+        description: "Package to build into ./bin/app (empty = go build ./...)"
+        type: string
+        default: ""
+      artifact-name:
+        type: string
+        default: ""
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      - name: golangci-lint
+        if: inputs.run-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Build
+        env:
+          TARGET: ${{ inputs.build-target }}
+          CGO_ENABLED: "0"
+        run: |
+          if [ -n "$TARGET" ]; then
+            go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_SHA::7}" -o bin/app "$TARGET"
+          else
+            go build ./...
+          fi
+
+      - name: Upload artifact
+        if: inputs.artifact-name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ inputs.working-directory }}/bin/
+            ${{ inputs.working-directory }}/coverage.out

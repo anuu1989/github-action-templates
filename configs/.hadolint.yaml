@@ -1,0 +1,9 @@
+# Copy to repo root as .hadolint.yaml
+failure-threshold: error
+ignored:
+  - DL3008   # pin apt versions: too noisy for most teams
+trustedRegistries:
+  - docker.io
+  - ghcr.io
+  - public.ecr.aws
+  - "*.dkr.ecr.*.amazonaws.com"

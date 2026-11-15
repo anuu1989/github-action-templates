@@ -1,0 +1,36 @@
+# Automated releases from conventional commits; publishes a Docker image on each release
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          release-type: node     # maven, python, go, simple, terraform-module, ...
+
+  publish-image:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      registry: ghcr
+      image-name: my-app
+      platforms: linux/amd64,linux/arm64
+      sign-image: true

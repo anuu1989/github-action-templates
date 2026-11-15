@@ -1,0 +1,68 @@
+# Go service -> ECR -> EKS via Helm; chart validated with kubeconform + OPA policies on every PR
+name: go-service
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: your-org/github-actions-templates/.github/workflows/go-build.yml@v1
+    with:
+      build-target: ./cmd/server
+
+  chart:
+    uses: your-org/github-actions-templates/.github/workflows/k8s-validate.yml@v1
+    with:
+      helm-chart-path: charts/go-service
+      helm-values-files: |
+        charts/go-service/values.yaml
+        charts/go-service/values-prod.yaml
+      policy-path: policies/opa/kubernetes
+
+  image:
+    needs: [build, chart]
+    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      registry: ecr
+      image-name: go-service
+      push: ${{ github.event_name == 'push' }}
+      aws-role-arn: arn:aws:iam::111111111111:role/gha-ecr-push
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: image
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - env: staging
+            cluster: eks-staging
+            role: arn:aws:iam::222222222222:role/gha-eks-deploy
+          - env: production
+            cluster: eks-prod
+            role: arn:aws:iam::333333333333:role/gha-eks-deploy
+    uses: your-org/github-actions-templates/.github/workflows/eks-helm-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ matrix.env }}
+      cluster-name: ${{ matrix.cluster }}
+      aws-role-arn: ${{ matrix.role }}
+      release-name: go-service
+      namespace: go-service
+      chart: charts/go-service
+      values-files: |
+        charts/go-service/values.yaml
+        charts/go-service/values-${{ matrix.env }}.yaml
+      set-values: |
+        image.repository=${{ needs.image.outputs.image }}
+        image.digest=${{ needs.image.outputs.digest }}

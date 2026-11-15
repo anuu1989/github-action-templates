@@ -1,0 +1,28 @@
+# Unused security groups are clutter and a mis-attachment risk: each must be attached to something.
+metadata:
+  id: "CKV2_ORG_10"
+  name: "Ensure security groups are attached to a resource"
+  category: "NETWORKING"
+definition:
+  and:
+    - cond_type: filter
+      attribute: resource_type
+      value: ["aws_security_group"]
+      operator: within
+    - cond_type: connection
+      resource_types: ["aws_security_group"]
+      connected_resource_types:
+        - aws_instance
+        - aws_launch_template
+        - aws_lb
+        - aws_db_instance
+        - aws_rds_cluster
+        - aws_lambda_function
+        - aws_ecs_service
+        - aws_eks_cluster
+        - aws_elasticache_replication_group
+        - aws_network_interface
+        - aws_vpc_endpoint
+        - aws_security_group_rule
+        - aws_vpc_security_group_ingress_rule
+      operator: exists

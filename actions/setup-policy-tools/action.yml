@@ -1,0 +1,38 @@
+name: Setup policy tools
+description: Install OPA, Conftest, TFLint, kubeconform and Checkov at pinned versions.
+inputs:
+  opa-version:
+    default: "1.0.0"
+  conftest-version:
+    default: "0.56.0"
+  kubeconform-version:
+    default: "v0.6.7"
+  install-checkov:
+    default: "false"
+  checkov-version:
+    default: "3.2.334"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OPA_VERSION: ${{ inputs.opa-version }}
+        CONFTEST_VERSION: ${{ inputs.conftest-version }}
+        KUBECONFORM_VERSION: ${{ inputs.kubeconform-version }}
+      run: |
+        BIN="$RUNNER_TEMP/policy-bin"; mkdir -p "$BIN"
+        curl -sSfL -o "$BIN/opa" "https://github.com/open-policy-agent/opa/releases/download/v${OPA_VERSION}/opa_linux_amd64_static"
+        chmod +x "$BIN/opa"
+        curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$BIN" conftest
+        curl -sSfL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$BIN" kubeconform
+        echo "$BIN" >> "$GITHUB_PATH"
+    - if: inputs.install-checkov == 'true'
+      shell: bash
+      env:
+        CHECKOV_VERSION: ${{ inputs.checkov-version }}
+      run: pipx install "checkov==${CHECKOV_VERSION}"
+    - shell: bash
+      run: |
+        opa version | head -1
+        conftest --version
+        kubeconform -v

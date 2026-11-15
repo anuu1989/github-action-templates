@@ -1,0 +1,7 @@
+untrusted github.event data interpolated into run
+checks out untrusted PR code
+permissions: write-all is not allowed
+tracks a mutable branch
+self-hosted runners must not run pull request workflows
+static AWS keys
+ACTIONS_ALLOW_UNSECURE_COMMANDS

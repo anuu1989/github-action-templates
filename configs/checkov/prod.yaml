@@ -1,0 +1,7 @@
+# Strict profile for production: every failure blocks; skips must be inline with a justification.
+compact: true
+framework: [terraform]
+external-checks-dir: [policies/checkov/custom_checks]
+download-external-modules: true
+evaluate-variables: true
+soft-fail: false

@@ -1,0 +1,131 @@
+# Reusable: credential-free Terraform checks: fmt, validate (every module), TFLint, Trivy misconfig scan
+# and terraform-docs drift check. Safe to run on PRs from forks.
+name: Terraform Static Analysis
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: "."
+      terraform-version:
+        type: string
+        default: "1.9.8"
+      run-validate:
+        type: boolean
+        default: true
+      run-tflint:
+        type: boolean
+        default: true
+      tflint-version:
+        type: string
+        default: v0.54.0
+      tflint-config:
+        description: "Repo-relative path to .tflint.hcl (empty = use working-directory/.tflint.hcl if present)"
+        type: string
+        default: ""
+      run-trivy:
+        type: boolean
+        default: true
+      trivy-severity:
+        type: string
+        default: CRITICAL,HIGH
+      run-terraform-docs:
+        description: "Fail if README.md terraform-docs sections are out of date"
+        type: boolean
+        default: false
+      upload-sarif:
+        type: boolean
+        default: false
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform validate (all modules)
+        if: inputs.run-validate
+        run: |
+          failed=0
+          for dir in $(find . -name '*.tf' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u); do
+            echo "::group::validate $dir"
+            if ! (cd "$dir" && terraform init -backend=false -input=false -no-color >/dev/null && terraform validate -no-color); then
+              echo "::error file=$dir::terraform validate failed in $dir"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+      - name: Cache TFLint plugins
+        if: inputs.run-tflint
+        uses: actions/cache@v4
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ runner.os }}-${{ hashFiles('**/.tflint.hcl') }}
+
+      - uses: terraform-linters/setup-tflint@v4
+        if: inputs.run-tflint
+        with:
+          tflint_version: ${{ inputs.tflint-version }}
+
+      - name: TFLint
+        if: inputs.run-tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TFLINT_CONFIG: ${{ inputs.tflint-config }}
+        run: |
+          CFG=""
+          if [ -n "$TFLINT_CONFIG" ]; then CFG="$GITHUB_WORKSPACE/$TFLINT_CONFIG"
+          elif [ -f .tflint.hcl ]; then CFG="$(pwd)/.tflint.hcl"; fi
+          ARGS=(--recursive --format compact)
+          [ -n "$CFG" ] && ARGS+=(--config "$CFG")
+          if [ -n "$CFG" ]; then tflint --init --config "$CFG"; else tflint --init; fi
+          tflint "${ARGS[@]}"
+
+      - name: Trivy misconfiguration scan
+        if: inputs.run-trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.working-directory }}
+          severity: ${{ inputs.trivy-severity }}
+          exit-code: "1"
+          format: ${{ inputs.upload-sarif && 'sarif' || 'table' }}
+          output: ${{ inputs.upload-sarif && 'trivy-config.sarif' || '' }}
+
+      - name: Upload Trivy SARIF
+        if: always() && inputs.run-trivy && inputs.upload-sarif
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-terraform
+
+      - name: terraform-docs drift check
+        if: inputs.run-terraform-docs
+        uses: terraform-docs/gh-actions@v1.3.0
+        with:
+          working-dir: ${{ inputs.working-directory }}
+          recursive: true
+          recursive-path: modules
+          output-file: README.md
+          output-method: inject
+          fail-on-diff: true

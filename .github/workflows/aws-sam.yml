@@ -1,0 +1,105 @@
+# Reusable: AWS SAM: validate + build + deploy a serverless application.
+# Caller permissions needed: contents: read, id-token: write
+name: AWS SAM Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      working-directory:
+        type: string
+        default: "."
+      template:
+        type: string
+        default: template.yaml
+      stack-name:
+        type: string
+        required: true
+      parameter-overrides:
+        description: "Space-separated Key=Value pairs"
+        type: string
+        default: ""
+      s3-bucket:
+        description: "Artifacts bucket (empty = --resolve-s3)"
+        type: string
+        default: ""
+      use-container:
+        type: boolean
+        default: false
+      python-version:
+        type: string
+        default: ""
+      node-version:
+        type: string
+        default: ""
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        required: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: sam-${{ inputs.stack-name }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      TEMPLATE: ${{ inputs.template }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        if: inputs.python-version != ''
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - uses: actions/setup-node@v4
+        if: inputs.node-version != ''
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - run: sam validate --lint --template-file "$TEMPLATE"
+
+      - name: sam build
+        env:
+          USE_CONTAINER: ${{ inputs.use-container }}
+        run: |
+          ARGS=(--template-file "$TEMPLATE" --cached --parallel)
+          [ "$USE_CONTAINER" = "true" ] && ARGS+=(--use-container)
+          sam build "${ARGS[@]}"
+
+      - name: sam deploy
+        env:
+          STACK: ${{ inputs.stack-name }}
+          BUCKET: ${{ inputs.s3-bucket }}
+          PARAMS: ${{ inputs.parameter-overrides }}
+          REGION: ${{ inputs.aws-region }}
+        run: |
+          ARGS=(--stack-name "$STACK" --region "$REGION"
+                --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND
+                --no-confirm-changeset --no-fail-on-empty-changeset
+                --tags "repo=${GITHUB_REPOSITORY}" "commit=${GITHUB_SHA}")
+          if [ -n "$BUCKET" ]; then ARGS+=(--s3-bucket "$BUCKET"); else ARGS+=(--resolve-s3); fi
+          # shellcheck disable=SC2206
+          [ -n "$PARAMS" ] && ARGS+=(--parameter-overrides $PARAMS)
+          sam deploy "${ARGS[@]}"

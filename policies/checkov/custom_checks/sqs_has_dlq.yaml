@@ -1,0 +1,16 @@
+# Every SQS queue needs a dead-letter queue, except queues that ARE dead-letter queues (name ends in -dlq).
+metadata:
+  id: "CKV2_ORG_9"
+  name: "Ensure SQS queues have a redrive (dead-letter) policy"
+  category: "BACKUP_AND_RECOVERY"
+definition:
+  or:
+    - cond_type: attribute
+      resource_types: ["aws_sqs_queue"]
+      attribute: redrive_policy
+      operator: exists
+    - cond_type: attribute
+      resource_types: ["aws_sqs_queue"]
+      attribute: name
+      operator: ending_with
+      value: "-dlq"

@@ -1,0 +1,127 @@
+# Reusable: deploy a Helm chart to Amazon EKS with atomic rollback.
+# Caller permissions needed: contents: read, id-token: write
+# The assumed IAM role must be mapped in the cluster (EKS access entry or aws-auth ConfigMap).
+name: EKS Helm Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      environment-url:
+        type: string
+        default: ""
+      cluster-name:
+        type: string
+        required: true
+      release-name:
+        type: string
+        required: true
+      chart:
+        description: "Local chart path, repo/chart, or oci:// reference"
+        type: string
+        required: true
+      chart-version:
+        type: string
+        default: ""
+      helm-repo-url:
+        description: "Add this repo as 'remote' before deploying (for repo/chart references)"
+        type: string
+        default: ""
+      namespace:
+        type: string
+        default: default
+      values-files:
+        description: "Newline-separated values files"
+        type: string
+        default: ""
+      set-values:
+        description: "Newline-separated key=value overrides"
+        type: string
+        default: ""
+      image-tag:
+        description: "Shortcut for --set image.tag=<value>"
+        type: string
+        default: ""
+      timeout:
+        type: string
+        default: 10m
+      dry-run:
+        type: boolean
+        default: false
+      helm-version:
+        type: string
+        default: v3.16.3
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        type: string
+        required: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runs-on }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.environment-url }}
+    concurrency:
+      group: helm-${{ inputs.cluster-name }}-${{ inputs.namespace }}-${{ inputs.release-name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Update kubeconfig
+        env:
+          CLUSTER: ${{ inputs.cluster-name }}
+          REGION: ${{ inputs.aws-region }}
+        run: aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
+
+      - name: Helm upgrade --install
+        env:
+          RELEASE: ${{ inputs.release-name }}
+          CHART: ${{ inputs.chart }}
+          CHART_VERSION: ${{ inputs.chart-version }}
+          REPO_URL: ${{ inputs.helm-repo-url }}
+          NAMESPACE: ${{ inputs.namespace }}
+          VALUES: ${{ inputs.values-files }}
+          SETS: ${{ inputs.set-values }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+          TIMEOUT: ${{ inputs.timeout }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [ -n "$REPO_URL" ]; then helm repo add remote "$REPO_URL" && helm repo update; fi
+          if [ -f "$CHART/Chart.yaml" ]; then
+            helm dependency build "$CHART"
+            helm lint "$CHART"
+          fi
+          ARGS=(upgrade --install "$RELEASE" "$CHART" --namespace "$NAMESPACE" --create-namespace
+                --atomic --wait --timeout "$TIMEOUT" --history-max 10)
+          [ -n "$CHART_VERSION" ] && ARGS+=(--version "$CHART_VERSION")
+          while IFS= read -r f; do [ -n "$f" ] && ARGS+=(-f "$f"); done <<< "$VALUES"
+          while IFS= read -r s; do [ -n "$s" ] && ARGS+=(--set "$s"); done <<< "$SETS"
+          [ -n "$IMAGE_TAG" ] && ARGS+=(--set "image.tag=$IMAGE_TAG")
+          [ "$DRY_RUN" = "true" ] && ARGS+=(--dry-run=server)
+          helm "${ARGS[@]}"
+
+      - name: Release status
+        if: always() && !inputs.dry-run
+        env:
+          RELEASE: ${{ inputs.release-name }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          helm status "$RELEASE" -n "$NAMESPACE" || true
+          helm history "$RELEASE" -n "$NAMESPACE" --max 5 || true

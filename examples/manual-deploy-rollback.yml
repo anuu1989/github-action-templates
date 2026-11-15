@@ -1,0 +1,46 @@
+# Manual deploy / rollback of any previously built image tag to a chosen environment
+name: manual-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, staging, production]
+        required: true
+      image-tag:
+        description: "Existing image tag, e.g. sha-1a2b3c4 or 1.4.2"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      role: ${{ steps.cfg.outputs.role }}
+      cluster: ${{ steps.cfg.outputs.cluster }}
+    steps:
+      - id: cfg
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$ENVIRONMENT" in
+            dev)        echo "role=arn:aws:iam::222222222222:role/gha-ecs-deploy" >> "$GITHUB_OUTPUT"; echo "cluster=dev-cluster" >> "$GITHUB_OUTPUT" ;;
+            staging)    echo "role=arn:aws:iam::444444444444:role/gha-ecs-deploy" >> "$GITHUB_OUTPUT"; echo "cluster=staging-cluster" >> "$GITHUB_OUTPUT" ;;
+            production) echo "role=arn:aws:iam::333333333333:role/gha-ecs-deploy" >> "$GITHUB_OUTPUT"; echo "cluster=prod-cluster" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  deploy:
+    needs: resolve
+    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    with:
+      environment: ${{ inputs.environment }}
+      aws-role-arn: ${{ needs.resolve.outputs.role }}
+      cluster: ${{ needs.resolve.outputs.cluster }}
+      service: orders-service
+      container-name: app
+      task-definition-family: orders-service-${{ inputs.environment }}
+      image: 111111111111.dkr.ecr.us-east-1.amazonaws.com/orders-service:${{ inputs.image-tag }}

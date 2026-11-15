@@ -1,0 +1,25 @@
+# Used by actions/labeler@v5 (copy to .github/labeler.yml)
+terraform:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.tf", "**/*.tfvars", "**/.terraform.lock.hcl"]
+java:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.java", "**/pom.xml", "**/build.gradle*"]
+node:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.ts", "**/*.js", "**/package.json"]
+docker:
+  - changed-files:
+      - any-glob-to-any-file: ["**/Dockerfile*", "**/.dockerignore"]
+kubernetes:
+  - changed-files:
+      - any-glob-to-any-file: ["k8s/**", "charts/**", "helm/**"]
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**"]
+policy:
+  - changed-files:
+      - any-glob-to-any-file: ["policies/**", "**/*.rego"]
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.md", "docs/**"]

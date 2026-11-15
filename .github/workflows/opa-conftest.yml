@@ -1,0 +1,105 @@
+# Reusable: OPA / Rego policy-as-code.
+#  1. `opa check` + `opa test` the policy library itself (unit tests for your policies)
+#  2. `conftest test` any structured files (Terraform plan JSON, K8s YAML, Dockerfile, HCL, JSON, ...)
+name: OPA Conftest
+
+on:
+  workflow_call:
+    inputs:
+      policy-path:
+        description: "Repo-relative directory containing .rego policies"
+        type: string
+        default: policies/opa
+      files:
+        description: "Space/newline-separated files or directories to test (empty = only run policy unit tests)"
+        type: string
+        default: ""
+      download-artifact:
+        description: "Download this artifact (e.g. a tfplan artifact) into the workspace before testing"
+        type: string
+        default: ""
+      download-path:
+        type: string
+        default: "."
+      namespace:
+        description: "Rego namespace to evaluate (empty = all namespaces)"
+        type: string
+        default: ""
+      data-path:
+        description: "Optional data directory (JSON/YAML) passed to conftest --data"
+        type: string
+        default: ""
+      parser:
+        description: "Force a conftest parser (hcl2, dockerfile, yaml, json, ...)"
+        type: string
+        default: ""
+      run-policy-tests:
+        type: boolean
+        default: true
+      fail-on-warn:
+        type: boolean
+        default: false
+      opa-version:
+        type: string
+        default: latest
+      conftest-version:
+        type: string
+        default: "0.56.0"
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: ${{ inputs.opa-version }}
+
+      - name: Install conftest
+        env:
+          CONFTEST_VERSION: ${{ inputs.conftest-version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" conftest
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Policy unit tests (opa check + opa test)
+        if: inputs.run-policy-tests
+        env:
+          POLICY: ${{ inputs.policy-path }}
+        run: |
+          opa check "$POLICY"
+          opa test "$POLICY" -v
+
+      - name: Download artifact
+        if: inputs.download-artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.download-artifact }}
+          path: ${{ inputs.download-path }}
+
+      - name: conftest test
+        if: inputs.files != ''
+        env:
+          POLICY: ${{ inputs.policy-path }}
+          FILES: ${{ inputs.files }}
+          NAMESPACE: ${{ inputs.namespace }}
+          DATA: ${{ inputs.data-path }}
+          PARSER: ${{ inputs.parser }}
+          FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+        run: |
+          ARGS=(--policy "$POLICY" --output github)
+          if [ -n "$NAMESPACE" ]; then ARGS+=(--namespace "$NAMESPACE"); else ARGS+=(--all-namespaces); fi
+          [ -n "$DATA" ]   && ARGS+=(--data "$DATA")
+          [ -n "$PARSER" ] && ARGS+=(--parser "$PARSER")
+          [ "$FAIL_ON_WARN" = "true" ] && ARGS+=(--fail-on-warn)
+          # shellcheck disable=SC2086
+          conftest test "${ARGS[@]}" $FILES

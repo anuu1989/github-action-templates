@@ -1,0 +1,279 @@
+# Reusable: Terraform fmt/validate/plan with PR comment, optional OPA (conftest) gate on the plan JSON,
+# and a gated apply job that applies the *exact* reviewed plan file.
+#
+# Caller permissions needed:
+#   contents: read, id-token: write (AWS OIDC), pull-requests: write (PR comment)
+name: Terraform Plan & Apply
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Terraform root module directory"
+        type: string
+        required: true
+      environment:
+        description: "GitHub Environment used for the apply job (approvals, env secrets)"
+        type: string
+        default: ""
+      terraform-version:
+        type: string
+        default: "1.9.8"
+      aws-region:
+        type: string
+        default: us-east-1
+      aws-role-arn:
+        description: "IAM role to assume via OIDC (empty = skip AWS auth)"
+        type: string
+        default: ""
+      backend-config:
+        description: "Backend config file relative to working-directory (e.g. backends/prod.hcl)"
+        type: string
+        default: ""
+      var-file:
+        description: "tfvars file relative to working-directory (e.g. envs/prod.tfvars)"
+        type: string
+        default: ""
+      workspace:
+        type: string
+        default: ""
+      plan-args:
+        description: "Extra args for terraform plan (e.g. -target=..., -var=...)"
+        type: string
+        default: ""
+      apply:
+        description: "Run the apply job after a successful plan"
+        type: boolean
+        default: false
+      comment-on-pr:
+        type: boolean
+        default: true
+      opa-policy-path:
+        description: "Directory of Rego policies (repo-relative) to evaluate the plan JSON against"
+        type: string
+        default: ""
+      conftest-version:
+        type: string
+        default: "0.56.0"
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      TF_API_TOKEN:
+        description: "Optional HCP Terraform / TFE token"
+        required: false
+    outputs:
+      has-changes:
+        value: ${{ jobs.plan.outputs.has-changes }}
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+
+jobs:
+  plan:
+    name: Plan ${{ inputs.environment || inputs.working-directory }}
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    outputs:
+      has-changes: ${{ steps.plan.outputs.has-changes }}
+      artifact: ${{ steps.name.outputs.artifact }}
+    env:
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      BACKEND_CONFIG: ${{ inputs.backend-config }}
+      VAR_FILE: ${{ inputs.var-file }}
+      WORKSPACE: ${{ inputs.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Artifact name
+        id: name
+        env:
+          WD: ${{ inputs.working-directory }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: echo "artifact=tfplan-${ENVIRONMENT:-default}-$(echo "$WD" | tr -c 'a-zA-Z0-9\n' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        if: inputs.aws-role-arn != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+
+      - name: Cache providers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.terraform.d/plugin-cache
+          key: tf-providers-${{ runner.os }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working-directory)) }}
+
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init
+        run: |
+          ARGS=()
+          [ -n "$BACKEND_CONFIG" ] && ARGS+=("-backend-config=$BACKEND_CONFIG")
+          terraform init "${ARGS[@]}"
+
+      - name: Select workspace
+        if: inputs.workspace != ''
+        run: terraform workspace select -or-create "$WORKSPACE"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        id: plan
+        env:
+          PLAN_ARGS: ${{ inputs.plan-args }}
+        run: |
+          ARGS=(-detailed-exitcode -out=tfplan -no-color)
+          [ -n "$VAR_FILE" ] && ARGS+=("-var-file=$VAR_FILE")
+          set +e
+          # shellcheck disable=SC2086
+          terraform plan "${ARGS[@]}" $PLAN_ARGS 2>&1 | tee plan.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 1 ]; then echo "::error::terraform plan failed"; exit 1; fi
+          echo "has-changes=$([ "$rc" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          terraform show -no-color tfplan > plan.txt
+          terraform show -json tfplan > tfplan.json
+
+      - name: OPA policy check (conftest)
+        if: inputs.opa-policy-path != ''
+        env:
+          CONFTEST_VERSION: ${{ inputs.conftest-version }}
+          POLICY: ${{ github.workspace }}/${{ inputs.opa-policy-path }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" conftest
+          "$RUNNER_TEMP/bin/conftest" test tfplan.json --policy "$POLICY" --all-namespaces --output github
+
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: |
+            ${{ inputs.working-directory }}/tfplan
+            ${{ inputs.working-directory }}/plan.txt
+            ${{ inputs.working-directory }}/tfplan.json
+          retention-days: 5
+
+      - name: Job summary
+        run: |
+          {
+            echo "### Terraform plan: \`${{ inputs.working-directory }}\` ${{ inputs.environment }}"
+            echo '<details><summary>Show plan</summary>'
+            echo
+            echo '```hcl'
+            head -c 60000 plan.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request' && inputs.comment-on-pr
+        uses: actions/github-script@v7
+        env:
+          WD: ${{ inputs.working-directory }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          HAS_CHANGES: ${{ steps.plan.outputs.has-changes }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { WD, ENVIRONMENT, HAS_CHANGES } = process.env;
+            let plan = fs.readFileSync(`${WD}/plan.txt`, 'utf8');
+            const MAX = 60000;
+            if (plan.length > MAX) plan = plan.slice(0, MAX) + '\n\n... (truncated, see workflow summary / artifact)';
+            const marker = `<!-- terraform-plan:${WD}:${ENVIRONMENT} -->`;
+            const summary = (plan.match(/Plan: .*|No changes\..*/) || ['(see details)'])[0];
+            const body = `${marker}
+            #### Terraform plan \`${WD}\` ${ENVIRONMENT ? `(**${ENVIRONMENT}**)` : ''} ${HAS_CHANGES === 'true' ? ':memo:' : ':white_check_mark:'}
+            **${summary}**
+
+            <details><summary>Show plan</summary>
+
+            \`\`\`hcl
+            ${plan}
+            \`\`\`
+            </details>
+
+            *Run: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) by @${context.actor}*`;
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
+
+  apply:
+    name: Apply ${{ inputs.environment || inputs.working-directory }}
+    needs: plan
+    if: inputs.apply && needs.plan.outputs.has-changes == 'true'
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: terraform-apply-${{ inputs.working-directory }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      BACKEND_CONFIG: ${{ inputs.backend-config }}
+      WORKSPACE: ${{ inputs.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        if: inputs.aws-role-arn != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+
+      - name: Cache providers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.terraform.d/plugin-cache
+          key: tf-providers-${{ runner.os }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working-directory)) }}
+
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - name: terraform init
+        run: |
+          ARGS=()
+          [ -n "$BACKEND_CONFIG" ] && ARGS+=("-backend-config=$BACKEND_CONFIG")
+          terraform init "${ARGS[@]}"
+
+      - name: Select workspace
+        if: inputs.workspace != ''
+        run: terraform workspace select "$WORKSPACE"
+
+      - name: Download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.plan.outputs.artifact }}
+          path: ${{ inputs.working-directory }}
+
+      - name: terraform apply
+        run: terraform apply -no-color tfplan
