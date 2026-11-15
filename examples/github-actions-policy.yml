@@ -11,14 +11,14 @@ permissions:
 
 jobs:
   conftest:
-    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/opa-conftest.yml@v1
     with:
       policy-path: policies/opa/github-actions
       files: .github/workflows/
       namespace: github_actions
 
   checkov-gha:
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     with:
       directory: .github/workflows
       framework: github_actions

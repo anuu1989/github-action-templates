@@ -1,5 +1,5 @@
 # Java (Spring Boot, Maven) -> Docker image in ECR -> ECS Fargate (dev auto, prod with approval)
-# Copy to .github/workflows/ in your app repo. Replace your-org, account IDs and names.
+# Copy to .github/workflows/ in your app repo. Replace the account IDs, role ARNs and names.
 name: java-service
 
 on:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/java-build.yml@v1
     with:
       build-tool: maven
       java-versions: '["21"]'
@@ -24,7 +24,7 @@ jobs:
       artifact-path: target/*.jar
 
   security:
-    uses: your-org/github-actions-templates/.github/workflows/codeql.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/codeql.yml@v1
     permissions:
       contents: read
       security-events: write
@@ -35,7 +35,7 @@ jobs:
 
   image:
     needs: build
-    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/docker-build-push.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -51,7 +51,7 @@ jobs:
   deploy-dev:
     if: github.ref == 'refs/heads/main'
     needs: image
-    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-ecs-deploy.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -67,7 +67,7 @@ jobs:
 
   deploy-prod:
     needs: [image, deploy-dev]
-    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-ecs-deploy.yml@v1
     permissions:
       contents: read
       id-token: write

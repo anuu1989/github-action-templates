@@ -11,12 +11,12 @@ permissions:
 
 jobs:
   static:
-    uses: your-org/github-actions-templates/.github/workflows/terraform-static-analysis.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-static-analysis.yml@v1
     with:
       run-terraform-docs: true
 
   checkov:
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     with:
       framework: terraform
       download-external-modules: false

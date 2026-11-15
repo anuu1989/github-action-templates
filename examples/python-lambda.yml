@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    uses: your-org/github-actions-templates/.github/workflows/python-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/python-build.yml@v1
     with:
       python-versions: '["3.12"]'
       run-mypy: true
@@ -37,7 +37,7 @@ jobs:
 
   deploy-dev:
     needs: package
-    uses: your-org/github-actions-templates/.github/workflows/aws-lambda-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-lambda-deploy.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -49,7 +49,7 @@ jobs:
 
   deploy-prod:
     needs: deploy-dev
-    uses: your-org/github-actions-templates/.github/workflows/aws-lambda-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-lambda-deploy.yml@v1
     permissions:
       contents: read
       id-token: write

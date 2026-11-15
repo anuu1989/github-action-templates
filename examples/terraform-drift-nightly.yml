@@ -23,7 +23,7 @@ jobs:
             dir: infra/app
             env: prod
             role: arn:aws:iam::333333333333:role/gha-terraform-readonly
-    uses: your-org/github-actions-templates/.github/workflows/terraform-drift-detection.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-drift-detection.yml@v1
     permissions:
       contents: read
       id-token: write

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   manifests:
-    uses: your-org/github-actions-templates/.github/workflows/k8s-validate.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/k8s-validate.yml@v1
     with:
       manifests-path: k8s/base
       kubernetes-version: "1.31.0"
@@ -23,7 +23,7 @@ jobs:
         overlay: [dev, staging, prod]
     steps:
       - uses: actions/checkout@v4
-      - uses: your-org/github-actions-templates/actions/setup-policy-tools@v1
+      - uses: anuu1989/github-action-templates/actions/setup-policy-tools@v1
       - name: Build overlay
         env:
           OVERLAY: ${{ matrix.overlay }}
@@ -32,7 +32,7 @@ jobs:
       - run: conftest test rendered.yaml --policy policies/opa/kubernetes --all-namespaces --output github
 
   dockerfile:
-    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/opa-conftest.yml@v1
     with:
       policy-path: policies/opa/docker
       files: Dockerfile

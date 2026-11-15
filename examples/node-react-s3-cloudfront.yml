@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/node-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/node-build.yml@v1
     with:
       node-versions: '["20","22"]'
       package-manager: pnpm
@@ -23,7 +23,7 @@ jobs:
   deploy-staging:
     if: github.event_name == 'push'
     needs: build
-    uses: your-org/github-actions-templates/.github/workflows/aws-s3-static-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-s3-static-deploy.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -38,7 +38,7 @@ jobs:
   deploy-prod:
     if: github.event_name == 'release'
     needs: build
-    uses: your-org/github-actions-templates/.github/workflows/aws-s3-static-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-s3-static-deploy.yml@v1
     permissions:
       contents: read
       id-token: write

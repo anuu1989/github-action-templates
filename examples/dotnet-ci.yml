@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/dotnet-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/dotnet-build.yml@v1
     with:
       dotnet-version: "8.0.x"
       project: src/Api.sln
@@ -18,7 +18,7 @@ jobs:
       artifact-name: api-publish
 
   codeql:
-    uses: your-org/github-actions-templates/.github/workflows/codeql.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/codeql.yml@v1
     permissions:
       contents: read
       security-events: write

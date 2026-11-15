@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   dev:
-    uses: your-org/github-actions-templates/.github/workflows/aws-sam.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-sam.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -23,7 +23,7 @@ jobs:
 
   prod:
     needs: dev
-    uses: your-org/github-actions-templates/.github/workflows/aws-sam.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-sam.yml@v1
     permissions:
       contents: read
       id-token: write

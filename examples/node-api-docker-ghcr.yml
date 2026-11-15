@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/node-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/node-build.yml@v1
     with:
       node-versions: '["22"]'
       package-manager: npm
@@ -22,7 +22,7 @@ jobs:
 
   image:
     needs: build
-    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/docker-build-push.yml@v1
     permissions:
       contents: read
       packages: write

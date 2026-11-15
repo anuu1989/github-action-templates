@@ -72,7 +72,7 @@ The caller job must grant `id-token: write`:
 ```yaml
 jobs:
   deploy:
-    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-ecs-deploy.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -80,4 +80,4 @@ jobs:
 
 The token's `sub` is that of the **calling** repository. To additionally restrict which reusable workflow may
 assume a role, add a condition on `token.actions.githubusercontent.com:job_workflow_ref`, e.g.
-`your-org/github-actions-templates/.github/workflows/terraform-plan-apply.yml@refs/tags/v1`.
+`anuu1989/github-action-templates/.github/workflows/terraform-plan-apply.yml@refs/tags/v1`.

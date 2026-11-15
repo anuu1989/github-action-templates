@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   plan:
-    uses: your-org/github-actions-templates/.github/workflows/terraform-plan-apply.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-plan-apply.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -25,7 +25,7 @@ jobs:
   # The plan artifact is named tfplan-<env>-<working-dir with non-alphanumerics replaced by '-'>
   checkov-plan:
     needs: plan
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     with:
       download-artifact: tfplan-dev-infra
       file: checkov-input/tfplan.json
@@ -34,7 +34,7 @@ jobs:
 
   opa-plan:
     needs: plan
-    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/opa-conftest.yml@v1
     with:
       policy-path: policies/opa/terraform
       download-artifact: tfplan-dev-infra

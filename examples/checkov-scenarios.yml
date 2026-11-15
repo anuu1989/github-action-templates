@@ -27,7 +27,7 @@ jobs:
   # 1 -------------------------------------------------------------------------------------------
   # Create the baseline once:  checkov -d infra --create-baseline   (commit infra/.checkov.baseline)
   legacy-baseline:
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     with:
       directory: infra
       framework: terraform
@@ -209,7 +209,7 @@ jobs:
   # 8 -------------------------------------------------------------------------------------------
   nightly-sarif:
     if: github.event_name == 'schedule'
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     permissions:
       contents: read
       security-events: write

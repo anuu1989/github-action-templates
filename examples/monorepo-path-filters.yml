@@ -35,14 +35,14 @@ jobs:
   api:
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/java-build.yml@v1
     with:
       working-directory: services/api
 
   web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
-    uses: your-org/github-actions-templates/.github/workflows/node-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/node-build.yml@v1
     with:
       working-directory: apps/web
       cache-dependency-path: apps/web/package-lock.json
@@ -50,7 +50,7 @@ jobs:
   infra:
     needs: changes
     if: needs.changes.outputs.infra == 'true'
-    uses: your-org/github-actions-templates/.github/workflows/terraform-static-analysis.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-static-analysis.yml@v1
     with:
       working-directory: infra
 

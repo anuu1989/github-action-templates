@@ -35,7 +35,7 @@ jobs:
 
   deploy:
     needs: resolve
-    uses: your-org/github-actions-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-ecs-deploy.yml@v1
     with:
       environment: ${{ inputs.environment }}
       aws-role-arn: ${{ needs.resolve.outputs.role }}

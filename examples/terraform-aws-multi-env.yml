@@ -27,12 +27,12 @@ concurrency:
 jobs:
   # 1) Credential-free checks: safe for forks
   static:
-    uses: your-org/github-actions-templates/.github/workflows/terraform-static-analysis.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-static-analysis.yml@v1
     with:
       working-directory: infra
 
   checkov:
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     permissions:
       contents: read
       security-events: write
@@ -43,7 +43,7 @@ jobs:
       upload-sarif: true
 
   policy-unit-tests:
-    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/opa-conftest.yml@v1
     with:
       policy-path: policies/opa/terraform
 
@@ -62,7 +62,7 @@ jobs:
             role: arn:aws:iam::444444444444:role/gha-terraform
           - env: prod
             role: arn:aws:iam::333333333333:role/gha-terraform
-    uses: your-org/github-actions-templates/.github/workflows/terraform-plan-apply.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-plan-apply.yml@v1
     permissions:
       contents: read
       id-token: write

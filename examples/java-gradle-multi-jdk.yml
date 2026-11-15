@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/java-build.yml@v1
     with:
       build-tool: gradle
       java-versions: '["17","21"]'
@@ -22,7 +22,7 @@ jobs:
 
   sonar:
     needs: build
-    uses: your-org/github-actions-templates/.github/workflows/sonarqube.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/sonarqube.yml@v1
     with:
       project-key: acme_java-library
       extra-args: -Dsonar.java.binaries=build/classes

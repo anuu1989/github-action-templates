@@ -23,15 +23,15 @@ docs/                  AWS OIDC setup, policy-as-code guide
 
 ## Quick start
 
-1. Push this repo to your org as `your-org/github-actions-templates` and tag a release: `git tag v1 && git push --tags`.
+1. The templates live at [`anuu1989/github-action-templates`](https://github.com/anuu1989/github-action-templates). Reference the moving `v1` tag, or an exact `v1.x.y` tag. To use them from another org, fork the repo and replace `anuu1989/github-action-templates` in the examples.
 2. If the repo is private or internal, go to **Settings → Actions → General → Access** and allow access from repositories in the organization.
 3. Set up AWS OIDC once per account. See [docs/aws-oidc-setup.md](docs/aws-oidc-setup.md).
-4. Copy an example from [`examples/`](examples) into your app repo's `.github/workflows/` and replace `your-org`, the account IDs and the resource names.
+4. Copy an example from [`examples/`](examples) into your app repo's `.github/workflows/` and replace the AWS account IDs, role ARNs and resource names.
 
 ```yaml
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/java-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/java-build.yml@v1
     with:
       build-tool: maven
       java-versions: '["17","21"]'

@@ -60,14 +60,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: your-org/github-actions-templates
+          repository: anuu1989/github-action-templates
           ref: v1
           path: templates
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r templates/scripts/aws/requirements.txt
-      - uses: your-org/github-actions-templates/actions/setup-aws@v1
+      - uses: anuu1989/github-action-templates/actions/setup-aws@v1
         with:
           role-arn: ${{ matrix.account.role }}
       - name: Tag compliance (${{ matrix.account.name }})
@@ -81,7 +81,7 @@ jobs:
   cross-account:
     runs-on: ubuntu-latest
     steps:
-      - uses: your-org/github-actions-templates/actions/setup-aws@v1
+      - uses: anuu1989/github-action-templates/actions/setup-aws@v1
         with:
           role-arn: arn:aws:iam::111111111111:role/gha-hub
           chain-role-arn: arn:aws:iam::333333333333:role/hub-to-prod-readonly
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: your-org/github-actions-templates
+          repository: anuu1989/github-action-templates
           ref: v1
           path: templates
       - uses: actions/setup-node@v4

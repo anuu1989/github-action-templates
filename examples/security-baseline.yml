@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   codeql:
-    uses: your-org/github-actions-templates/.github/workflows/codeql.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/codeql.yml@v1
     permissions:
       contents: read
       security-events: write
@@ -22,7 +22,7 @@ jobs:
       languages: '["javascript-typescript","python","actions"]'
 
   secrets:
-    uses: your-org/github-actions-templates/.github/workflows/secret-scan.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/secret-scan.yml@v1
     permissions:
       contents: read
       security-events: write
@@ -30,7 +30,7 @@ jobs:
       upload-sarif: true
 
   trivy-fs:
-    uses: your-org/github-actions-templates/.github/workflows/trivy-scan.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/trivy-scan.yml@v1
     permissions:
       contents: read
       security-events: write
@@ -40,7 +40,7 @@ jobs:
       upload-sarif: true
 
   checkov-workflows:
-    uses: your-org/github-actions-templates/.github/workflows/checkov.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
     with:
       directory: .github/workflows
       framework: github_actions

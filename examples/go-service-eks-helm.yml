@@ -11,12 +11,12 @@ permissions:
 
 jobs:
   build:
-    uses: your-org/github-actions-templates/.github/workflows/go-build.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/go-build.yml@v1
     with:
       build-target: ./cmd/server
 
   chart:
-    uses: your-org/github-actions-templates/.github/workflows/k8s-validate.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/k8s-validate.yml@v1
     with:
       helm-chart-path: charts/go-service
       helm-values-files: |
@@ -26,7 +26,7 @@ jobs:
 
   image:
     needs: [build, chart]
-    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/docker-build-push.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -49,7 +49,7 @@ jobs:
           - env: production
             cluster: eks-prod
             role: arn:aws:iam::333333333333:role/gha-eks-deploy
-    uses: your-org/github-actions-templates/.github/workflows/eks-helm-deploy.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/eks-helm-deploy.yml@v1
     permissions:
       contents: read
       id-token: write

@@ -24,7 +24,7 @@ jobs:
   publish-image:
     needs: release-please
     if: needs.release-please.outputs.released == 'true'
-    uses: your-org/github-actions-templates/.github/workflows/docker-build-push.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/docker-build-push.yml@v1
     permissions:
       contents: read
       packages: write

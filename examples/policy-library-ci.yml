@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         domain: [terraform, kubernetes, docker, github-actions]
-    uses: your-org/github-actions-templates/.github/workflows/opa-conftest.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/opa-conftest.yml@v1
     with:
       policy-path: policies/opa/${{ matrix.domain }}
 
@@ -42,5 +42,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: your-org/github-actions-templates/actions/setup-policy-tools@v1
+      - uses: anuu1989/github-action-templates/actions/setup-policy-tools@v1
       - run: tests/run-conftest-fixtures.sh

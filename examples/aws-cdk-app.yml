@@ -14,7 +14,7 @@ permissions:
 jobs:
   diff:
     if: github.event_name == 'pull_request'
-    uses: your-org/github-actions-templates/.github/workflows/aws-cdk.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-cdk.yml@v1
     permissions:
       contents: read
       id-token: write
@@ -27,7 +27,7 @@ jobs:
 
   deploy:
     if: github.event_name == 'push'
-    uses: your-org/github-actions-templates/.github/workflows/aws-cdk.yml@v1
+    uses: anuu1989/github-action-templates/.github/workflows/aws-cdk.yml@v1
     permissions:
       contents: read
       id-token: write
