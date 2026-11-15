@@ -57,23 +57,23 @@ jobs:
     env:
       TEMPLATE: ${{ inputs.template }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: inputs.python-version != ''
         with:
           python-version: ${{ inputs.python-version }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: inputs.node-version != ''
         with:
           node-version: ${{ inputs.node-version }}
 
-      - uses: aws-actions/setup-sam@v2
+      - uses: aws-actions/setup-sam@v3
         with:
           use-installer: true
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}

@@ -87,7 +87,7 @@ jobs:
       VAR_FILE: ${{ inputs.var-file }}
       WORKSPACE: ${{ inputs.workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Artifact name
         id: name
@@ -98,18 +98,18 @@ jobs:
 
       - name: Configure AWS credentials
         if: inputs.aws-role-arn != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ inputs.terraform-version }}
           terraform_wrapper: false
 
       - name: Cache providers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.terraform.d/plugin-cache
           key: tf-providers-${{ runner.os }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working-directory)) }}
@@ -161,7 +161,7 @@ jobs:
           "$RUNNER_TEMP/bin/conftest" test tfplan.json --policy "$POLICY" --all-namespaces --output github
 
       - name: Upload plan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.name.outputs.artifact }}
           path: |
@@ -184,7 +184,7 @@ jobs:
 
       - name: Comment plan on PR
         if: github.event_name == 'pull_request' && inputs.comment-on-pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           WD: ${{ inputs.working-directory }}
           ENVIRONMENT: ${{ inputs.environment }}
@@ -237,22 +237,22 @@ jobs:
       BACKEND_CONFIG: ${{ inputs.backend-config }}
       WORKSPACE: ${{ inputs.workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials
         if: inputs.aws-role-arn != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ inputs.terraform-version }}
           terraform_wrapper: false
 
       - name: Cache providers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.terraform.d/plugin-cache
           key: tf-providers-${{ runner.os }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working-directory)) }}
@@ -270,7 +270,7 @@ jobs:
         run: terraform workspace select "$WORKSPACE"
 
       - name: Download plan
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ needs.plan.outputs.artifact }}
           path: ${{ inputs.working-directory }}

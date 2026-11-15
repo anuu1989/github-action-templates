@@ -43,11 +43,11 @@ jobs:
       DOTNET_NOLOGO: "true"
       DOTNET_CLI_TELEMETRY_OPTOUT: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
@@ -60,7 +60,7 @@ jobs:
           dotnet test "${P[@]}" --no-build -c "$CONFIGURATION" --logger trx --results-directory TestResults --collect:"XPlat Code Coverage"
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dotnet-test-results
           path: ${{ inputs.working-directory }}/TestResults
@@ -72,7 +72,7 @@ jobs:
         run: dotnet publish "$PUBLISH_PROJECT" -c "$CONFIGURATION" -o publish --no-restore
       - name: Upload artifact
         if: inputs.publish-project != '' && inputs.artifact-name != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-name }}
           path: ${{ inputs.working-directory }}/publish
