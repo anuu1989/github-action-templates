@@ -1,0 +1,271 @@
+# GOLDEN PATH: zero-config application pipeline.
+#
+#   detect ─► build (java|node|python|go|dotnet, auto) ─┬─► image (if Dockerfile) ─► deploy env1 ─► env2 ─► …
+#           ├► secret scan                            ─┤
+#           ├► trivy fs (deps, misconfig, secrets)   ─┤
+#           └► codeql (optional)                      ─┘                                     └► notify (Slack)
+#
+# Minimal caller (.github/workflows/pipeline.yml):
+#   jobs:
+#     pipeline:
+#       uses: anuu1989/github-action-templates/.github/workflows/pipeline-app.yml@v1
+#       permissions: { contents: read, packages: write, id-token: write, security-events: write, actions: read }
+#       with:
+#         app-name: orders-service
+#
+# Caller permissions: contents: read, packages: write (GHCR), id-token: write (OIDC/cosign),
+#                     security-events: write + actions: read (only if codeql: true)
+name: Pipeline - Application
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: "Image / release name"
+        type: string
+        required: true
+      working-directory:
+        type: string
+        default: "."
+      registry:
+        description: "ghcr or ecr"
+        type: string
+        default: ghcr
+      ecr-role-arn:
+        description: "IAM role for ECR push (registry: ecr)"
+        type: string
+        default: ""
+      aws-region:
+        type: string
+        default: us-east-1
+      platforms:
+        type: string
+        default: linux/amd64
+      security-scans:
+        description: "Run gitleaks + trivy fs"
+        type: boolean
+        default: true
+      codeql:
+        description: "Run CodeQL (needs GitHub Advanced Security on private repos)"
+        type: boolean
+        default: false
+      sign-image:
+        type: boolean
+        default: false
+      deploy-target:
+        description: "none, ecs or eks-helm"
+        type: string
+        default: none
+      deploy-branch:
+        description: "Only deploy from this branch"
+        type: string
+        default: main
+      environments:
+        description: >
+          JSON list, deployed in order (each is a GitHub Environment, add reviewers for approvals).
+          ecs:      [{"name":"dev","role_arn":"…","cluster":"…","service":"…","container":"app","task_family":"…","url":"…"}]
+          eks-helm: [{"name":"dev","role_arn":"…","cluster":"…","namespace":"…","values_file":"…","url":"…"}]
+        type: string
+        default: "[]"
+      helm-chart:
+        description: "Chart path for eks-helm (empty = auto-detected)"
+        type: string
+        default: ""
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
+      PACKAGES_TOKEN:
+        required: false
+      NPM_TOKEN:
+        required: false
+    outputs:
+      language:
+        value: ${{ jobs.detect.outputs.language }}
+      image-ref:
+        value: ${{ jobs.image.outputs.image-ref }}
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      language: ${{ steps.d.outputs.language }}
+      build-tool: ${{ steps.d.outputs.build-tool }}
+      package-manager: ${{ steps.d.outputs.package-manager }}
+      java-versions: ${{ steps.d.outputs.java-versions }}
+      node-versions: ${{ steps.d.outputs.node-versions }}
+      python-versions: ${{ steps.d.outputs.python-versions }}
+      artifact-path: ${{ steps.d.outputs.artifact-path }}
+      artifact-dir: ${{ steps.d.outputs.artifact-dir }}
+      codeql-language: ${{ steps.d.outputs.codeql-language }}
+      has-dockerfile: ${{ steps.d.outputs.has-dockerfile }}
+      helm-chart: ${{ steps.d.outputs.helm-chart }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: d
+        uses: anuu1989/github-action-templates/actions/detect-project@v1
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - name: Fail on unknown project type
+        if: steps.d.outputs.language == 'unknown'
+        run: |
+          echo "::error::Could not detect the project type (pom.xml, build.gradle, package.json, pyproject.toml/requirements.txt, go.mod, *.sln/*.csproj)"
+          exit 1
+
+  # ---- build: exactly one of these runs --------------------------------------------------------
+  build-java:
+    needs: detect
+    if: needs.detect.outputs.language == 'java'
+    uses: anuu1989/github-action-templates/.github/workflows/java-build.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      build-tool: ${{ needs.detect.outputs.build-tool }}
+      java-versions: ${{ needs.detect.outputs.java-versions }}
+      artifact-name: app-build
+      artifact-path: ${{ needs.detect.outputs.artifact-path }}
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+
+  build-node:
+    needs: detect
+    if: needs.detect.outputs.language == 'node'
+    uses: anuu1989/github-action-templates/.github/workflows/node-build.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      package-manager: ${{ needs.detect.outputs.package-manager }}
+      node-versions: ${{ needs.detect.outputs.node-versions }}
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  build-python:
+    needs: detect
+    if: needs.detect.outputs.language == 'python'
+    uses: anuu1989/github-action-templates/.github/workflows/python-build.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      python-versions: ${{ needs.detect.outputs.python-versions }}
+
+  build-go:
+    needs: detect
+    if: needs.detect.outputs.language == 'go'
+    uses: anuu1989/github-action-templates/.github/workflows/go-build.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+
+  build-dotnet:
+    needs: detect
+    if: needs.detect.outputs.language == 'dotnet'
+    uses: anuu1989/github-action-templates/.github/workflows/dotnet-build.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+
+  # ---- security (parallel with build) ----------------------------------------------------------
+  secret-scan:
+    if: inputs.security-scans
+    uses: anuu1989/github-action-templates/.github/workflows/secret-scan.yml@v1
+
+  trivy-fs:
+    if: inputs.security-scans
+    uses: anuu1989/github-action-templates/.github/workflows/trivy-scan.yml@v1
+    with:
+      scan-type: fs
+      scan-ref: ${{ inputs.working-directory }}
+
+  codeql:
+    needs: detect
+    if: inputs.codeql
+    uses: anuu1989/github-action-templates/.github/workflows/codeql.yml@v1
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      languages: '["${{ needs.detect.outputs.codeql-language }}"]'
+      build-mode: none
+
+  # ---- container image ---------------------------------------------------------------------------
+  image:
+    needs: [detect, build-java, build-node, build-python, build-go, build-dotnet, secret-scan, trivy-fs]
+    # run when the detected build succeeded (others are 'skipped') and nothing failed
+    if: ${{ !failure() && !cancelled() && needs.detect.outputs.has-dockerfile == 'true' }}
+    uses: anuu1989/github-action-templates/.github/workflows/docker-build-push.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      image-name: ${{ inputs.app-name }}
+      registry: ${{ inputs.registry }}
+      aws-role-arn: ${{ inputs.ecr-role-arn }}
+      aws-region: ${{ inputs.aws-region }}
+      context: ${{ inputs.working-directory }}
+      dockerfile: ${{ inputs.working-directory }}/Dockerfile
+      platforms: ${{ inputs.platforms }}
+      push: ${{ github.event_name != 'pull_request' }}
+      sign-image: ${{ inputs.sign-image && github.event_name != 'pull_request' }}
+      download-artifact: ${{ needs.detect.outputs.language == 'java' && 'app-build' || '' }}
+      download-path: ${{ inputs.working-directory }}/${{ needs.detect.outputs.artifact-dir }}
+
+  # ---- deploy (sequential through environments; GitHub Environments gate approvals) -------------
+  deploy-ecs:
+    needs: image
+    if: >-
+      ${{ !failure() && !cancelled() && needs.image.result == 'success' && inputs.deploy-target == 'ecs' && inputs.environments != '[]'
+          && github.event_name != 'pull_request' && github.ref_name == inputs.deploy-branch }}
+    strategy:
+      max-parallel: 1
+      matrix:
+        env: ${{ fromJSON(inputs.environments) }}
+    uses: anuu1989/github-action-templates/.github/workflows/aws-ecs-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ matrix.env.name }}
+      environment-url: ${{ matrix.env.url }}
+      aws-region: ${{ inputs.aws-region }}
+      aws-role-arn: ${{ matrix.env.role_arn }}
+      cluster: ${{ matrix.env.cluster }}
+      service: ${{ matrix.env.service || inputs.app-name }}
+      container-name: ${{ matrix.env.container || 'app' }}
+      task-definition-family: ${{ matrix.env.task_family || format('{0}-{1}', inputs.app-name, matrix.env.name) }}
+      image: ${{ needs.image.outputs.image-ref }}
+
+  deploy-eks:
+    needs: [detect, image]
+    if: >-
+      ${{ !failure() && !cancelled() && needs.image.result == 'success' && inputs.deploy-target == 'eks-helm' && inputs.environments != '[]'
+          && github.event_name != 'pull_request' && github.ref_name == inputs.deploy-branch }}
+    strategy:
+      max-parallel: 1
+      matrix:
+        env: ${{ fromJSON(inputs.environments) }}
+    uses: anuu1989/github-action-templates/.github/workflows/eks-helm-deploy.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ matrix.env.name }}
+      environment-url: ${{ matrix.env.url }}
+      aws-region: ${{ inputs.aws-region }}
+      aws-role-arn: ${{ matrix.env.role_arn }}
+      cluster-name: ${{ matrix.env.cluster }}
+      namespace: ${{ matrix.env.namespace || inputs.app-name }}
+      release-name: ${{ inputs.app-name }}
+      chart: ${{ inputs.helm-chart || needs.detect.outputs.helm-chart }}
+      values-files: ${{ matrix.env.values_file }}
+      set-values: |
+        image.repository=${{ needs.image.outputs.image }}
+        image.tag=${{ needs.image.outputs.sha-tag }}
+
+  # ---- notify --------------------------------------------------------------------------------
+  notify:
+    if: always()
+    needs: [detect, build-java, build-node, build-python, build-go, build-dotnet, secret-scan, trivy-fs, codeql, image, deploy-ecs, deploy-eks]
+    uses: anuu1989/github-action-templates/.github/workflows/notify-slack.yml@v1
+    with:
+      status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || 'success' }}
+      title: ${{ inputs.app-name }} pipeline
+      details: "*Language:* ${{ needs.detect.outputs.language }}  *Image:* `${{ needs.image.outputs.image-ref || 'n/a' }}`"
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

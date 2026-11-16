@@ -1,0 +1,29 @@
+name: Terraform
+
+on:
+  pull_request:
+  push:
+    branches: [$default-branch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    uses: anuu1989/github-action-templates/.github/workflows/pipeline-terraform.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    with:
+      working-directory: infra
+      apply-branch: $default-branch
+      environments: >-
+        [{"name":"dev","role_arn":"arn:aws:iam::111111111111:role/gha-terraform"},
+         {"name":"prod","role_arn":"arn:aws:iam::222222222222:role/gha-terraform"}]
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -10,35 +10,97 @@ A library of production-ready **reusable GitHub Actions workflows** with example
 - AWS SDK automation
 
 ```
-.github/workflows/     reusable workflows (on: workflow_call): the templates
-examples/              copy-paste caller pipelines that wire the templates together
-policies/opa/          Rego policies: Terraform plan (16 packages), Kubernetes (7), Dockerfile, GitHub Actions + 154 unit tests
-policies/checkov/      22 Checkov custom checks (Python + YAML graph) for Terraform, K8s, Dockerfile, CloudFormation
-tests/                 end-to-end policy scenarios: conftest pass/fail fixtures, Checkov expected-results runner
-actions/               composite actions (setup-aws, setup-policy-tools)
-scripts/aws/           AWS SDK scripts (boto3, AWS SDK for JS v3)
+.github/workflows/     reusable workflows (on: workflow_call): golden paths + building blocks
+actions/               composite actions: detect-project, setup-aws, setup-policy-tools
+workflow-templates/    org starter workflows (Actions → New workflow)
+scripts/               init-pipeline.sh scaffolder, AWS SDK scripts (boto3, AWS SDK for JS v3)
+examples/              copy-paste caller pipelines
+policies/opa/          Rego: Terraform plan (16 packages), Kubernetes (7), Dockerfile, GitHub Actions + 155 unit tests
+policies/checkov/      22 Checkov custom checks (Python + YAML graph): Terraform, K8s, Dockerfile, CloudFormation
+tests/                 end-to-end policy scenarios (conftest fixtures, Checkov expected results)
 configs/               drop-in configs: .checkov.yaml, checkov/{dev,prod}.yaml, .tflint.hcl, .hadolint.yaml, .gitleaks.toml, labeler, dependabot
-docs/                  AWS OIDC setup, policy-as-code guide
+docs/                  how it works (flow diagrams), AWS OIDC setup, policy-as-code guide
 ```
 
-## Quick start
+## Quick start: one command
 
-1. The templates live at [`anuu1989/github-action-templates`](https://github.com/anuu1989/github-action-templates). Reference the moving `v1` tag, or an exact `v1.x.y` tag. To use them from another org, fork the repo and replace `anuu1989/github-action-templates` in the examples.
-2. If the repo is private or internal, go to **Settings → Actions → General → Access** and allow access from repositories in the organization.
-3. Set up AWS OIDC once per account. See [docs/aws-oidc-setup.md](docs/aws-oidc-setup.md).
-4. Copy an example from [`examples/`](examples) into your app repo's `.github/workflows/` and replace the AWS account IDs, role ARNs and resource names.
+```bash
+cd your-repo
+curl -sSfL https://raw.githubusercontent.com/anuu1989/github-action-templates/v1/scripts/init-pipeline.sh | bash
+```
+
+The script detects your project (Java/Node/Python/Go/.NET app, Terraform, or anything else) and writes a
+working pipeline, a security workflow and `dependabot.yml`. Options:
+`--type app|terraform|security`, `--deploy none|ecs|eks-helm`, `--registry ghcr|ecr`, `--dir infra`.
+
+Or write the caller yourself. This is the entire file for a complete application pipeline:
 
 ```yaml
+# .github/workflows/pipeline.yml
+name: pipeline
+on: { pull_request: {}, push: { branches: [main] } }
+permissions: { contents: read }
 jobs:
-  build:
-    uses: anuu1989/github-action-templates/.github/workflows/java-build.yml@v1
+  pipeline:
+    uses: anuu1989/github-action-templates/.github/workflows/pipeline-app.yml@v1
+    permissions: { contents: read, packages: write, id-token: write }
     with:
-      build-tool: maven
-      java-versions: '["17","21"]'
-      artifact-name: app-jar
+      app-name: orders-service
 ```
 
+**What you get with no other configuration:**
+- language and runtime version auto-detected
+- build and tests
+- Gitleaks and Trivy scans
+- container image pushed to GHCR, with SBOM, provenance and a Trivy image scan
+
+Add `deploy-target: ecs` (or `eks-helm`) plus an `environments` list to deploy dev → prod with approvals.
+For Terraform, use [`pipeline-terraform.yml`](.github/workflows/pipeline-terraform.yml). It includes the OPA and Checkov
+policies, so you don't need to copy anything.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph YOU["Your repo"]
+        W[".github/workflows/pipeline.yml"]
+    end
+    subgraph T["anuu1989/github-action-templates @v1"]
+        GP["Golden path<br/>pipeline-app / pipeline-terraform"]
+        BB["Building blocks<br/>build · scan · image · plan/apply · deploy · notify"]
+        CA["Composite actions<br/>detect-project · setup-aws"]
+        POL[("Bundled policies<br/>OPA + Checkov")]
+    end
+    W -- "uses: …@v1<br/>with / secrets / permissions" --> GP
+    W -. "or call directly" .-> BB
+    GP --> BB --> CA
+    BB -. "if absent in your repo" .-> POL
+    BB -- "OIDC (no keys)" --> AWS["AWS"]
+    BB --> REG["GHCR / ECR"]
+    GP -- "outputs: image-ref, has-changes…" --> W
+```
+
+All jobs run as part of **your** workflow run: they use your repo's checkout, your `GITHUB_TOKEN`, only the secrets
+you pass, and at most the permissions you grant. The full walkthrough, with a runtime sequence diagram, both
+golden-path job graphs, policy resolution, the OIDC flow and versioning, is in
+**[docs/how-it-works.md](docs/how-it-works.md)**.
+
+### Setup checklist
+
+1. **Reference the templates** at [`anuu1989/github-action-templates`](https://github.com/anuu1989/github-action-templates) using `@v1` (moving) or `@v1.x.y` (fixed). To use them from another org, fork the repo and replace the repo path.
+2. **Allow access if the repo is private or internal:** go to **Settings → Actions → General → Access** and allow repositories in the organization.
+3. **Deploying to AWS?** Set up OIDC once per account. See [docs/aws-oidc-setup.md](docs/aws-oidc-setup.md).
+4. **Create GitHub Environments** (`dev`, `prod`, …) and add required reviewers to prod.
+5. **Optional:** add a `SLACK_WEBHOOK_URL` secret to get notifications.
+
 ## Reusable workflow catalog
+
+### Golden paths (complete pipelines)
+| Workflow | What it does | Key inputs |
+|---|---|---|
+| [pipeline-app.yml](.github/workflows/pipeline-app.yml) | detect → build (auto language) → Gitleaks + Trivy (+ CodeQL) → image → ECS / EKS deploy per environment → Slack | `app-name`, `deploy-target`, `environments` |
+| [pipeline-terraform.yml](.github/workflows/pipeline-terraform.yml) | static checks + Checkov → per-env plan with OPA gate and PR comment → approval-gated apply → Slack. Auto-discovers `backends/<env>.hcl` and `envs/<env>.tfvars` | `working-directory`, `environments` |
+| [notify-slack.yml](.github/workflows/notify-slack.yml) | Slack webhook notification; skips silently when no webhook is set | `status`, `title` |
 
 ### Build & test
 | Workflow | What it does | Key inputs |
@@ -83,6 +145,8 @@ jobs:
 
 | Example | Scenario |
 |---|---|
+| [golden-path-app.yml](examples/golden-path-app.yml) | Entire app pipeline with ECS dev → prod in about 20 lines |
+| [golden-path-terraform.yml](examples/golden-path-terraform.yml) | Terraform dev → staging → prod with bundled policies in about 20 lines |
 | [java-springboot-ecs.yml](examples/java-springboot-ecs.yml) | Maven → CodeQL → ECR image → ECS dev → ECS prod (approval) |
 | [java-gradle-multi-jdk.yml](examples/java-gradle-multi-jdk.yml) | Gradle library on JDK 17 + 21, SonarQube quality gate |
 | [node-react-s3-cloudfront.yml](examples/node-react-s3-cloudfront.yml) | pnpm SPA → S3/CloudFront staging on main, prod on release |
@@ -130,7 +194,7 @@ Reusable workflows can only use the permissions the **caller** grants. Set `perm
 
 ## Versioning & supply-chain hardening
 
-- Consumers pin `@v1` (a moving major tag) or an exact `@v1.2.3` tag. Release with `git tag -f v1 && git push -f --tags` after each `v1.x.y`.
+- Consumers pin `@v1` (a moving major tag) or an exact `@v1.2.3` tag. Pushing a `vX.Y.Z` tag runs [release.yml](.github/workflows/release.yml), which creates the GitHub release and moves `vX` automatically.
 - Third-party actions here are pinned to version tags for readability. For regulated environments, **pin to full commit SHAs**
   (for example with [`pinact`](https://github.com/suzuki-shunsuke/pinact) or `frizbee`) and let Dependabot keep them current ([.github/dependabot.yml](.github/dependabot.yml)).
 - Consider an org-level **allow-list of actions** and requiring `@sha` pins via repository rulesets.
@@ -156,5 +220,7 @@ checkov -d examples/terraform/github-oidc --external-checks-dir policies/checkov
 
 ## Further reading
 
+- [How it works: flow diagrams from your workflow file to the templates](docs/how-it-works.md)
+- [Starter workflows for organizations](workflow-templates/README.md)
 - [AWS OIDC setup & role design](docs/aws-oidc-setup.md)
 - [Policy as code guide (OPA + Checkov): full rule catalog, data-driven limits, exceptions, scenarios](docs/policy-as-code.md)

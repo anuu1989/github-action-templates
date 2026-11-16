@@ -1,0 +1,143 @@
+# GOLDEN PATH: Terraform on AWS with policy gates, PR plans and sequential, approval-gated applies.
+#
+#   PR:   static (fmt/validate/tflint/trivy) ┬─► plan env1 ─► plan env2 ─► …   (PR comment per env, OPA gate)
+#         checkov (+ org custom checks)      ┘
+#   main: same, then apply env1 ─► (approval) apply env2 ─► …                 └► notify (Slack)
+#
+# Policies and custom checks are bundled: if policies/ is not in your repo, the template's own
+# OPA + Checkov policies are used automatically. Add your own to override.
+#
+# Minimal caller:
+#   jobs:
+#     terraform:
+#       uses: anuu1989/github-action-templates/.github/workflows/pipeline-terraform.yml@v1
+#       permissions: { contents: read, id-token: write, pull-requests: write }
+#       with:
+#         working-directory: infra
+#         environments: >-
+#           [{"name":"dev","role_arn":"arn:aws:iam::111111111111:role/gha-terraform"},
+#            {"name":"prod","role_arn":"arn:aws:iam::222222222222:role/gha-terraform"}]
+name: Pipeline - Terraform
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: "."
+      environments:
+        description: >
+          JSON list applied in order. Optional per env: backend_config (default backends/<name>.hcl if it exists),
+          var_file (default envs/<name>.tfvars if it exists), region.
+          [{"name":"dev","role_arn":"arn:aws:iam::…:role/gha-terraform"}]
+        type: string
+        required: true
+      terraform-version:
+        type: string
+        default: "1.9.8"
+      aws-region:
+        type: string
+        default: us-east-1
+      apply-branch:
+        type: string
+        default: main
+      opa-policy-path:
+        description: "OPA policies for the plan gate (bundled default; empty = disable)"
+        type: string
+        default: policies/opa/terraform
+      checkov-checks-dir:
+        description: "Checkov custom checks (bundled default; empty = built-ins only)"
+        type: string
+        default: policies/checkov/custom_checks
+      checkov-soft-fail:
+        type: boolean
+        default: false
+      templates-ref:
+        type: string
+        default: v1
+    secrets:
+      TF_API_TOKEN:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+jobs:
+  static:
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-static-analysis.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      terraform-version: ${{ inputs.terraform-version }}
+
+  checkov:
+    uses: anuu1989/github-action-templates/.github/workflows/checkov.yml@v1
+    with:
+      directory: ${{ inputs.working-directory }}
+      framework: terraform
+      external-checks-dirs: ${{ inputs.checkov-checks-dir }}
+      soft-fail: ${{ inputs.checkov-soft-fail }}
+      templates-ref: ${{ inputs.templates-ref }}
+
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fill per-environment defaults
+        id: m
+        env:
+          ENVS: ${{ inputs.environments }}
+          WD: ${{ inputs.working-directory }}
+          REGION: ${{ inputs.aws-region }}
+        run: |
+          matrix=$(jq -c --arg wd "$WD" --arg region "$REGION" '[ .[] | . as $e
+            | .region = ($e.region // $region)
+            | .backend_config = ($e.backend_config // "")
+            | .var_file = ($e.var_file // "") ]' <<< "$ENVS")
+          # auto-discover conventional files
+          out='[]'
+          while read -r e; do
+            name=$(jq -r .name <<< "$e")
+            [ -z "$(jq -r .backend_config <<< "$e")" ] && [ -f "$WD/backends/$name.hcl" ] && e=$(jq -c --arg v "backends/$name.hcl" '.backend_config=$v' <<< "$e")
+            [ -z "$(jq -r .var_file <<< "$e")" ] && [ -f "$WD/envs/$name.tfvars" ] && e=$(jq -c --arg v "envs/$name.tfvars" '.var_file=$v' <<< "$e")
+            out=$(jq -c --argjson e "$e" '. + [$e]' <<< "$out")
+          done < <(jq -c '.[]' <<< "$matrix")
+          echo "matrix=$out" >> "$GITHUB_OUTPUT"
+          jq . <<< "$out"
+
+  terraform:
+    needs: [static, checkov, resolve]
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        env: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    uses: anuu1989/github-action-templates/.github/workflows/terraform-plan-apply.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      environment: ${{ matrix.env.name }}
+      aws-role-arn: ${{ matrix.env.role_arn }}
+      aws-region: ${{ matrix.env.region }}
+      backend-config: ${{ matrix.env.backend_config }}
+      var-file: ${{ matrix.env.var_file }}
+      terraform-version: ${{ inputs.terraform-version }}
+      opa-policy-path: ${{ inputs.opa-policy-path }}
+      templates-ref: ${{ inputs.templates-ref }}
+      apply: ${{ github.event_name != 'pull_request' && github.ref_name == inputs.apply-branch }}
+    secrets:
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+
+  notify:
+    if: always()
+    needs: [static, checkov, terraform]
+    uses: anuu1989/github-action-templates/.github/workflows/notify-slack.yml@v1
+    with:
+      status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || 'success' }}
+      title: Terraform ${{ inputs.working-directory }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

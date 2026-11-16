@@ -1,0 +1,28 @@
+name: Application pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [$default-branch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pipeline:
+    uses: anuu1989/github-action-templates/.github/workflows/pipeline-app.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      app-name: ${{ github.event.repository.name }}
+      # deploy-target: ecs
+      # environments: >-
+      #   [{"name":"dev","role_arn":"arn:aws:iam::111111111111:role/gha-deploy","cluster":"dev"}]
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

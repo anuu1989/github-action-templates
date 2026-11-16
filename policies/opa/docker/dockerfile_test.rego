@@ -41,3 +41,8 @@ test_curl_pipe_sh_warns if {
 	df := array.concat(good, [{"Cmd": "run", "Value": ["curl -sSL https://x.sh | bash"]}])
 	count(docker.warn) == 1 with input as df
 }
+
+test_absence_rules_ignore_non_dockerfile_inputs if {
+	count(docker.deny) == 0 with input as {"resource_changes": []}
+	count(docker.warn) == 0 with input as {"kind": "Deployment", "metadata": {"name": "x"}}
+}

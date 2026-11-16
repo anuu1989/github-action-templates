@@ -1,0 +1,6 @@
+{
+  "name": "Application pipeline (golden path)",
+  "description": "Auto-detects Java/Node/Python/Go/.NET, builds & tests, scans (Gitleaks, Trivy), builds a container image and optionally deploys to ECS or EKS.",
+  "categories": ["Continuous integration", "Deployment", "Java", "JavaScript", "TypeScript", "Python", "Go", "C#", "Dockerfile"],
+  "filePatterns": ["pom.xml$", "build.gradle", "package.json$", "pyproject.toml$", "requirements.txt$", "go.mod$", "\\.csproj$", "Dockerfile$"]
+}

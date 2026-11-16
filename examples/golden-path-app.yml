@@ -1,0 +1,27 @@
+# The smallest useful pipeline: auto-detected build + tests, secret & dependency scanning,
+# container image to GHCR, then ECS deploys dev -> prod (prod gated by GitHub Environment reviewers).
+name: pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    uses: anuu1989/github-action-templates/.github/workflows/pipeline-app.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      app-name: orders-service
+      deploy-target: ecs
+      environments: >-
+        [{"name":"dev","role_arn":"arn:aws:iam::222222222222:role/gha-ecs-deploy","cluster":"dev-cluster","url":"https://orders.dev.example.com"},
+         {"name":"production","role_arn":"arn:aws:iam::333333333333:role/gha-ecs-deploy","cluster":"prod-cluster","url":"https://orders.example.com"}]
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

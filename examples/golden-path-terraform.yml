@@ -1,0 +1,33 @@
+# Terraform with zero policy setup: bundled OPA + Checkov rules are used unless you add your own.
+# infra/backends/<env>.hcl and infra/envs/<env>.tfvars are discovered automatically.
+name: terraform
+
+on:
+  pull_request:
+    paths: ["infra/**"]
+  push:
+    branches: [main]
+    paths: ["infra/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    uses: anuu1989/github-action-templates/.github/workflows/pipeline-terraform.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    with:
+      working-directory: infra
+      environments: >-
+        [{"name":"dev","role_arn":"arn:aws:iam::222222222222:role/gha-terraform"},
+         {"name":"staging","role_arn":"arn:aws:iam::444444444444:role/gha-terraform"},
+         {"name":"prod","role_arn":"arn:aws:iam::333333333333:role/gha-terraform","region":"eu-west-1"}]
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

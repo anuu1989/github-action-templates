@@ -1,0 +1,6 @@
+{
+  "name": "Terraform on AWS (golden path)",
+  "description": "fmt/validate/TFLint/Trivy, Checkov + OPA policy gates (bundled), PR plan comments and approval-gated sequential applies via OIDC.",
+  "categories": ["Deployment", "HCL", "Terraform"],
+  "filePatterns": ["\\.tf$"]
+}

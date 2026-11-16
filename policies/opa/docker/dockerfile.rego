@@ -33,7 +33,18 @@ deny contains msg if {
 
 user_cmds := [cmd | some cmd in input; cmd.Cmd == "user"]
 
-deny contains "Dockerfile must switch to a non-root USER" if count(user_cmds) == 0
+# Conftest's dockerfile parser yields a list of instructions; guard "absence" rules so they never
+# fire on other inputs (e.g. a Terraform plan) when the whole policy library is evaluated at once.
+is_dockerfile if {
+	is_array(input)
+	some cmd in input
+	cmd.Cmd == "from"
+}
+
+deny contains "Dockerfile must switch to a non-root USER" if {
+	is_dockerfile
+	count(user_cmds) == 0
+}
 
 deny contains msg if {
 	count(user_cmds) > 0
@@ -73,6 +84,7 @@ warn contains msg if {
 }
 
 warn contains "Consider adding a HEALTHCHECK instruction" if {
+	is_dockerfile
 	not any_healthcheck
 }
 

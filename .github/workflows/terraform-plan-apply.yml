@@ -52,6 +52,10 @@ on:
         description: "Directory of Rego policies (repo-relative) to evaluate the plan JSON against"
         type: string
         default: ""
+      templates-ref:
+        description: "Ref of anuu1989/github-action-templates used for bundled policies when the path is not in this repo"
+        type: string
+        default: v1
       conftest-version:
         type: string
         default: "0.56.0"
@@ -149,11 +153,35 @@ jobs:
           terraform show -no-color tfplan > plan.txt
           terraform show -json tfplan > tfplan.json
 
+      - name: Locate policies (this repo first, else bundled)
+        if: inputs.opa-policy-path != ''
+        id: policies
+        env:
+          WANT: ${{ inputs.opa-policy-path }}
+          TEMPLATES_REF: ${{ inputs.templates-ref }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -z "$WANT" ] || [ -e "$WANT" ]; then
+            echo "source=repo" >> "$GITHUB_OUTPUT"; echo "path=$WANT" >> "$GITHUB_OUTPUT"
+          else
+            echo "source=bundled" >> "$GITHUB_OUTPUT"; echo "path=.gha-templates/$WANT" >> "$GITHUB_OUTPUT"
+            echo "::notice::'$WANT' not found in this repo: using bundled policies from anuu1989/github-action-templates@$TEMPLATES_REF"
+          fi
+
+      - name: Checkout bundled policies
+        if: steps.policies.outputs.source == 'bundled'
+        uses: actions/checkout@v4
+        with:
+          repository: anuu1989/github-action-templates
+          ref: ${{ inputs.templates-ref }}
+          path: .gha-templates
+          sparse-checkout: policies
+
       - name: OPA policy check (conftest)
         if: inputs.opa-policy-path != ''
         env:
           CONFTEST_VERSION: ${{ inputs.conftest-version }}
-          POLICY: ${{ github.workspace }}/${{ inputs.opa-policy-path }}
+          POLICY: ${{ github.workspace }}/${{ steps.policies.outputs.path }}
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \

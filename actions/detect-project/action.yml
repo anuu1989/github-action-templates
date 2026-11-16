@@ -1,0 +1,97 @@
+name: Detect project
+description: >
+  Zero-config project detection: language, build tool, package manager, runtime versions
+  (from .java-version / .nvmrc / .python-version / go.mod), Dockerfile, Terraform and Helm charts.
+inputs:
+  working-directory:
+    description: Directory to inspect
+    default: "."
+outputs:
+  language:
+    description: java | node | python | go | dotnet | unknown
+    value: ${{ steps.detect.outputs.language }}
+  build-tool:
+    description: maven | gradle (java only)
+    value: ${{ steps.detect.outputs.build-tool }}
+  package-manager:
+    description: npm | yarn | pnpm (node only)
+    value: ${{ steps.detect.outputs.package-manager }}
+  java-versions:
+    value: ${{ steps.detect.outputs.java-versions }}
+  node-versions:
+    value: ${{ steps.detect.outputs.node-versions }}
+  python-versions:
+    value: ${{ steps.detect.outputs.python-versions }}
+  artifact-path:
+    description: Build output glob relative to working-directory (for passing to the image build)
+    value: ${{ steps.detect.outputs.artifact-path }}
+  artifact-dir:
+    description: Directory the build output must be restored to before `docker build`
+    value: ${{ steps.detect.outputs.artifact-dir }}
+  codeql-language:
+    value: ${{ steps.detect.outputs.codeql-language }}
+  has-dockerfile:
+    value: ${{ steps.detect.outputs.has-dockerfile }}
+  has-terraform:
+    value: ${{ steps.detect.outputs.has-terraform }}
+  helm-chart:
+    description: Path of the first Helm chart found (empty if none)
+    value: ${{ steps.detect.outputs.helm-chart }}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        lang=unknown tool="" pm="" codeql="" apath="" adir=""
+        major() { sed -E 's/^[^0-9]*//; s/[^0-9].*$//' <<< "$1"; }
+        minor_ver() { grep -oE '^[0-9]+\.[0-9]+' <<< "$1" || true; }
+
+        if [ -f pom.xml ]; then
+          lang=java tool=maven apath="target/*.jar" adir=target
+        elif compgen -G "build.gradle*" >/dev/null || compgen -G "settings.gradle*" >/dev/null; then
+          lang=java tool=gradle apath="build/libs/*.jar" adir=build/libs
+        elif [ -f package.json ]; then
+          lang=node apath=dist adir=dist
+          if [ -f pnpm-lock.yaml ]; then pm=pnpm; elif [ -f yarn.lock ]; then pm=yarn; else pm=npm; fi
+        elif [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.py ]; then
+          lang=python
+        elif [ -f go.mod ]; then
+          lang=go
+        elif compgen -G "*.sln" >/dev/null || compgen -G "*.csproj" >/dev/null || compgen -G "src/*/*.csproj" >/dev/null; then
+          lang=dotnet
+        fi
+
+        case "$lang" in
+          java) codeql=java-kotlin ;; node) codeql=javascript-typescript ;;
+          python) codeql=python ;; go) codeql=go ;; dotnet) codeql=csharp ;;
+        esac
+
+        jv=21; [ -f .java-version ] && jv=$(major "$(cat .java-version)")
+        [ -f .sdkmanrc ] && grep -q '^java=' .sdkmanrc && jv=$(major "$(grep '^java=' .sdkmanrc | cut -d= -f2)")
+        nv=22
+        for f in .nvmrc .node-version; do
+          if [ -f "$f" ]; then v=$(major "$(cat "$f")"); [ -n "$v" ] && nv=$v; fi
+        done
+        pv=3.12; [ -f .python-version ] && { v=$(minor_ver "$(cat .python-version)"); [ -n "$v" ] && pv=$v; }
+
+        tf=false
+        [ -n "$(find . -maxdepth 3 -name '*.tf' -not -path '*/.terraform/*' -print -quit)" ] && tf=true
+        chart=$(find . -maxdepth 3 -name Chart.yaml -not -path '*/charts/*/charts/*' -print -quit)
+        chart=${chart:+$(dirname "$chart")}; chart=${chart#./}
+
+        {
+          echo "language=$lang"; echo "build-tool=$tool"; echo "package-manager=$pm"
+          echo "java-versions=[\"$jv\"]"; echo "node-versions=[\"$nv\"]"; echo "python-versions=[\"$pv\"]"
+          echo "artifact-path=$apath"; echo "artifact-dir=$adir"; echo "codeql-language=$codeql"
+          echo "has-dockerfile=$([ -f Dockerfile ] && echo true || echo false)"
+          echo "has-terraform=$tf"; echo "helm-chart=$chart"
+        } | tee -a "$GITHUB_OUTPUT"
+
+        {
+          echo "### Project detection"
+          echo "| language | build tool | pkg manager | Dockerfile | Terraform | Helm chart |"
+          echo "|---|---|---|---|---|---|"
+          echo "| $lang | ${tool:--} | ${pm:--} | $([ -f Dockerfile ] && echo yes || echo no) | $tf | ${chart:--} |"
+        } >> "$GITHUB_STEP_SUMMARY"

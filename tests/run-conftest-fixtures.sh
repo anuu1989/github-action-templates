@@ -4,7 +4,7 @@
 #   - every *fail* fixture must fail AND print every line listed in its .expected file
 # Usage: tests/run-conftest-fixtures.sh   (CONFTEST=/path/to/conftest to override)
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 CONFTEST="${CONFTEST:-conftest}"
 FIX=tests/fixtures/opa
 status=0

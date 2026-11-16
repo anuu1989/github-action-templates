@@ -1,0 +1,59 @@
+# Reusable: post a pipeline result to Slack via an incoming webhook (no third-party action).
+# Silently skips when SLACK_WEBHOOK_URL is not provided, so pipelines can always include it.
+name: Notify Slack
+
+on:
+  workflow_call:
+    inputs:
+      status:
+        description: "success, failure or cancelled (tip: compute from needs.*.result)"
+        type: string
+        required: true
+      title:
+        type: string
+        default: ""
+      details:
+        description: "Extra markdown (mrkdwn) lines"
+        type: string
+        default: ""
+      notify-on:
+        description: "always, failure, or changes (failure + first success after a failure is not tracked; use always/failure)"
+        type: string
+        default: always
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Post to Slack
+        env:
+          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STATUS: ${{ inputs.status }}
+          TITLE: ${{ inputs.title || github.workflow }}
+          DETAILS: ${{ inputs.details }}
+          NOTIFY_ON: ${{ inputs.notify-on }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "SLACK_WEBHOOK_URL not set: skipping notification"; exit 0; fi
+          if [ "$NOTIFY_ON" = "failure" ] && [ "$STATUS" = "success" ]; then echo "Success and notify-on=failure: skipping"; exit 0; fi
+          case "$STATUS" in
+            success)   icon=":white_check_mark:" color="#2eb886" ;;
+            cancelled) icon=":heavy_minus_sign:" color="#a0a0a0" ;;
+            *)         icon=":x:" color="#d40e0d" ;;
+          esac
+          text="$icon *$TITLE* ($STATUS)\n*Repo:* $GITHUB_REPOSITORY  *Ref:* \`$REF\`  *Commit:* \`${SHA::7}\`  *By:* $ACTOR\n<$RUN_URL|View workflow run>"
+          [ -n "$DETAILS" ] && text="$text\n$DETAILS"
+          payload=$(jq -n --arg text "$(printf '%b' "$text")" --arg color "$color" \
+            '{attachments: [{color: $color, blocks: [{type: "section", text: {type: "mrkdwn", text: $text}}]}]}')
+          curl -sSf -X POST -H 'Content-Type: application/json' --data "$payload" "$WEBHOOK" > /dev/null
+          echo "Notified Slack ($STATUS)"

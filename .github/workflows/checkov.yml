@@ -55,6 +55,10 @@ on:
       upload-sarif:
         type: boolean
         default: false
+      templates-ref:
+        description: "Ref of anuu1989/github-action-templates used for bundled policies when the path is not in this repo"
+        type: string
+        default: v1
       runs-on:
         type: string
         default: ubuntu-latest
@@ -72,6 +76,29 @@ jobs:
           name: ${{ inputs.download-artifact }}
           path: checkov-input
 
+      - name: Locate custom checks (this repo first, else bundled)
+        id: checks
+        env:
+          WANT: ${{ inputs.external-checks-dirs }}
+          TEMPLATES_REF: ${{ inputs.templates-ref }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -z "$WANT" ] || [ -e "$WANT" ]; then
+            echo "source=repo" >> "$GITHUB_OUTPUT"; echo "path=$WANT" >> "$GITHUB_OUTPUT"
+          else
+            echo "source=bundled" >> "$GITHUB_OUTPUT"; echo "path=.gha-templates/$WANT" >> "$GITHUB_OUTPUT"
+            echo "::notice::'$WANT' not found in this repo: using bundled custom checks from anuu1989/github-action-templates@$TEMPLATES_REF"
+          fi
+
+      - name: Checkout bundled custom checks
+        if: steps.checks.outputs.source == 'bundled'
+        uses: actions/checkout@v4
+        with:
+          repository: anuu1989/github-action-templates
+          ref: ${{ inputs.templates-ref }}
+          path: .gha-templates
+          sparse-checkout: policies
+
       - name: Run Checkov
         id: checkov
         uses: bridgecrewio/checkov-action@v12
@@ -80,7 +107,7 @@ jobs:
           file: ${{ inputs.file }}
           framework: ${{ inputs.framework }}
           config_file: ${{ inputs.config-file }}
-          external_checks_dirs: ${{ inputs.external-checks-dirs }}
+          external_checks_dirs: ${{ steps.checks.outputs.path }}
           check: ${{ inputs.checks }}
           skip_check: ${{ inputs.skip-checks }}
           skip_path: ${{ inputs.skip-paths }}

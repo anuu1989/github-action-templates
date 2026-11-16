@@ -66,6 +66,54 @@ jobs:
       - name: Every custom check matches its expected pass/fail scenarios
         run: python tests/run-checkov-scenarios.py
 
+  detect-project:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        include:
+          - { files: "pom.xml .java-version=17", expect: java,   version-key: java-versions, version: '["17"]' }
+          - { files: "package.json pnpm-lock.yaml .nvmrc=v20.11.1", expect: node, version-key: node-versions, version: '["20"]' }
+          - { files: "pyproject.toml .python-version=3.11.4", expect: python, version-key: python-versions, version: '["3.11"]' }
+          - { files: "go.mod", expect: go, version-key: java-versions, version: '["21"]' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create sample project
+        env:
+          FILES: ${{ matrix.files }}
+        run: |
+          mkdir -p sample && cd sample
+          for f in $FILES; do name=${f%%=*}; value=${f#*=}; [ "$name" = "$f" ] && value=x; echo "$value" > "$name"; done
+      - id: d
+        uses: ./actions/detect-project
+        with:
+          working-directory: sample
+      - name: Assert
+        env:
+          LANG_OUT: ${{ steps.d.outputs.language }}
+          EXPECT: ${{ matrix.expect }}
+          VERSION_OUT: ${{ steps.d.outputs[matrix.version-key] }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          test "$LANG_OUT" = "$EXPECT" || { echo "::error::language $LANG_OUT != $EXPECT"; exit 1; }
+          test "$VERSION_OUT" = "$VERSION" || { echo "::error::version $VERSION_OUT != $VERSION"; exit 1; }
+
+  scaffolder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate pipelines for each project type and lint them
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          for kind in app terraform security; do
+            d="$RUNNER_TEMP/$kind"; mkdir -p "$d" && cd "$d" && git init -q
+            case $kind in app) echo '<project/>' > pom.xml ;; terraform) mkdir infra && echo 'terraform {}' > infra/main.tf ;; esac
+            bash "$GITHUB_WORKSPACE/scripts/init-pipeline.sh" --deploy ecs
+            "$GITHUB_WORKSPACE/actionlint" .github/workflows/*.yml
+            cd "$GITHUB_WORKSPACE"
+          done
+
   composite-actions:
     runs-on: ubuntu-latest
     steps:

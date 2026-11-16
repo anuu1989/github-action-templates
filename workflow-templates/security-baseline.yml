@@ -1,0 +1,26 @@
+name: Security baseline
+
+on:
+  pull_request:
+  push:
+    branches: [$default-branch]
+  schedule:
+    - cron: "30 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    uses: anuu1989/github-action-templates/.github/workflows/secret-scan.yml@v1
+  dependencies:
+    uses: anuu1989/github-action-templates/.github/workflows/trivy-scan.yml@v1
+    with:
+      scan-type: fs
+  workflow-policy:
+    uses: anuu1989/github-action-templates/.github/workflows/opa-conftest.yml@v1
+    with:
+      policy-path: policies/opa/github-actions
+      files: .github/workflows/
+      namespace: github_actions
+      run-policy-tests: false

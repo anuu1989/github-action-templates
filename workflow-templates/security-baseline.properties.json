@@ -1,0 +1,5 @@
+{
+  "name": "Security baseline",
+  "description": "Gitleaks secret scanning, Trivy dependency/misconfig scanning and OPA checks on your workflows (script injection, pwn requests, unpinned actions).",
+  "categories": ["Code scanning", "Security"]
+}

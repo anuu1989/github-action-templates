@@ -87,6 +87,9 @@ on:
         value: ${{ jobs.build.outputs.image-ref }}
       tags:
         value: ${{ jobs.build.outputs.tags }}
+      sha-tag:
+        description: "Immutable per-commit tag, e.g. sha-1a2b3c4 (handy for Helm image.tag)"
+        value: ${{ jobs.build.outputs.sha-tag }}
 
 jobs:
   build:
@@ -96,6 +99,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
       image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
+      sha-tag: ${{ steps.image.outputs.sha-tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -155,6 +159,7 @@ jobs:
             *) echo "::error::Unsupported registry '$REGISTRY'"; exit 1 ;;
           esac
           echo "name=${NAME,,}" >> "$GITHUB_OUTPUT"
+          echo "sha-tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: contains(inputs.platforms, ',')
