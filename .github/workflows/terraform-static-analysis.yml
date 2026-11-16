@@ -51,9 +51,9 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ inputs.terraform-version }}
           terraform_wrapper: false
@@ -77,12 +77,12 @@ jobs:
 
       - name: Cache TFLint plugins
         if: inputs.run-tflint
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.tflint.d/plugins
           key: tflint-${{ runner.os }}-${{ hashFiles('**/.tflint.hcl') }}
 
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
         if: inputs.run-tflint
         with:
           tflint_version: ${{ inputs.tflint-version }}
@@ -114,14 +114,14 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always() && inputs.run-trivy && inputs.upload-sarif
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-config.sarif
           category: trivy-terraform
 
       - name: terraform-docs drift check
         if: inputs.run-terraform-docs
-        uses: terraform-docs/gh-actions@v1.3.0
+        uses: terraform-docs/gh-actions@v1.4.1
         with:
           working-dir: ${{ inputs.working-directory }}
           recursive: true

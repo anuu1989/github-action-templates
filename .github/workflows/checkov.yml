@@ -67,11 +67,11 @@ jobs:
   checkov:
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download input artifact
         if: inputs.download-artifact != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.download-artifact }}
           path: checkov-input
@@ -92,7 +92,7 @@ jobs:
 
       - name: Checkout bundled custom checks
         if: steps.checks.outputs.source == 'bundled'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: anuu1989/github-action-templates
           ref: ${{ inputs.templates-ref }}
@@ -120,7 +120,7 @@ jobs:
 
       - name: Upload SARIF
         if: always() && inputs.upload-sarif
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: checkov.sarif
           category: checkov

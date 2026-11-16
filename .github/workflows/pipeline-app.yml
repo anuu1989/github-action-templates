@@ -101,7 +101,7 @@ jobs:
       has-dockerfile: ${{ steps.d.outputs.has-dockerfile }}
       helm-chart: ${{ steps.d.outputs.helm-chart }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: d
         uses: anuu1989/github-action-templates/actions/detect-project@v1
         with:
