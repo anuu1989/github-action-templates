@@ -37,16 +37,16 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
           cache-dependency-path: ${{ inputs.working-directory }}/go.sum
 
       - name: golangci-lint
         if: inputs.run-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci-lint-version }}
           working-directory: ${{ inputs.working-directory }}
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload artifact
         if: inputs.artifact-name != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-name }}
           path: |

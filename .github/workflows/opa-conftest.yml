@@ -60,7 +60,7 @@ jobs:
   policy:
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Locate policies (this repo first, else bundled)
         id: policies
@@ -78,7 +78,7 @@ jobs:
 
       - name: Checkout bundled policies
         if: steps.policies.outputs.source == 'bundled'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: anuu1989/github-action-templates
           ref: ${{ inputs.templates-ref }}
@@ -108,7 +108,7 @@ jobs:
 
       - name: Download artifact
         if: inputs.download-artifact != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.download-artifact }}
           path: ${{ inputs.download-path }}
