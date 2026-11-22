@@ -101,25 +101,25 @@ jobs:
       tags: ${{ steps.meta.outputs.tags }}
       sha-tag: ${{ steps.image.outputs.sha-tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download build artifact
         if: inputs.download-artifact != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.download-artifact }}
           path: ${{ inputs.download-path }}
 
       - name: Lint Dockerfile (hadolint)
         if: inputs.lint-dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: ${{ inputs.dockerfile }}
           failure-threshold: error
 
       - name: Configure AWS credentials
         if: inputs.registry == 'ecr'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
@@ -131,7 +131,7 @@ jobs:
 
       - name: Login to GHCR
         if: inputs.registry == 'ghcr'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -139,7 +139,7 @@ jobs:
 
       - name: Login to Docker Hub
         if: inputs.registry == 'dockerhub'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -163,13 +163,13 @@ jobs:
 
       - name: Set up QEMU
         if: contains(inputs.platforms, ',')
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
@@ -182,7 +182,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}

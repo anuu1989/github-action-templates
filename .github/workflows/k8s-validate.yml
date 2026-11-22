@@ -45,7 +45,7 @@ jobs:
   validate:
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Locate policies (this repo first, else bundled)
         id: policies
@@ -63,7 +63,7 @@ jobs:
 
       - name: Checkout bundled policies
         if: steps.policies.outputs.source == 'bundled'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: anuu1989/github-action-templates
           ref: ${{ inputs.templates-ref }}
@@ -82,7 +82,7 @@ jobs:
             | tar -xz -C "$RUNNER_TEMP/bin" conftest
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         if: inputs.helm-chart-path != ''
 
       - name: Helm lint & template

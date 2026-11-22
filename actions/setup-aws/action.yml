@@ -20,7 +20,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: aws-actions/configure-aws-credentials@v4
+    - uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ inputs.role-arn }}
         aws-region: ${{ inputs.region }}
@@ -29,7 +29,7 @@ runs:
         mask-aws-account-id: false
 
     - if: inputs.chain-role-arn != ''
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ inputs.chain-role-arn }}
         aws-region: ${{ inputs.region }}

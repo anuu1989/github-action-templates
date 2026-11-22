@@ -50,9 +50,9 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -91,7 +91,7 @@ jobs:
 
       - name: Upload test & coverage reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-reports-${{ matrix.python }}
           path: |
@@ -107,7 +107,7 @@ jobs:
 
       - name: Upload dist
         if: inputs.build-package && inputs.artifact-name != '' && strategy.job-index == 0
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-name }}
           path: ${{ inputs.working-directory }}/dist/
